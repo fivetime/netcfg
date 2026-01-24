@@ -207,16 +207,16 @@ func (m *DHCPManager) ReleaseDHCPv6(ifaceName string) error {
 // EnableSLAAC 启用 IPv6 SLAAC
 func EnableSLAAC(ifaceName string) error {
 	slog.Info("enabling SLAAC", "interface", ifaceName)
-	writeSysctl(ifaceName, "accept_ra", "2")
-	writeSysctl(ifaceName, "autoconf", "1")
-	writeSysctl(ifaceName, "use_tempaddr", "2")
+	_ = writeSysctl(ifaceName, "accept_ra", "2")
+	_ = writeSysctl(ifaceName, "autoconf", "1")
+	_ = writeSysctl(ifaceName, "use_tempaddr", "2")
 	return nil
 }
 
 // DisableSLAAC 禁用 IPv6 SLAAC
 func DisableSLAAC(ifaceName string) error {
-	writeSysctl(ifaceName, "accept_ra", "0")
-	writeSysctl(ifaceName, "autoconf", "0")
+	_ = writeSysctl(ifaceName, "accept_ra", "0")
+	_ = writeSysctl(ifaceName, "autoconf", "0")
 	return nil
 }
 
