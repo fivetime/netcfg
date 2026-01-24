@@ -161,7 +161,7 @@ func applyRollbackRemovals(diff *state.Diff) error {
 			}
 			for _, addr := range addrs {
 				slog.Info("rollback: removing address", "device", dev, "address", addr)
-				mgr.DeleteAddress(dev, addr)
+				_ = mgr.DeleteAddress(dev, addr)
 			}
 		}
 		mgr.Close()
@@ -186,7 +186,7 @@ func applyRollbackRemovals(diff *state.Diff) error {
 		for _, dev := range devs {
 			if mgr.LinkExists(dev) {
 				slog.Info("rollback: removing device", "device", dev)
-				mgr.DeleteLink(dev)
+				_ = mgr.DeleteLink(dev)
 			}
 		}
 		mgr.Close()
@@ -196,7 +196,7 @@ func applyRollbackRemovals(diff *state.Diff) error {
 	for _, ns := range diff.NsToAdd {
 		if ns != "" && nl.NetnsExists(ns) {
 			slog.Info("rollback: removing netns", "name", ns)
-			nl.DeleteNetns(ns)
+			_ = nl.DeleteNetns(ns)
 		}
 	}
 
@@ -227,7 +227,7 @@ func applyRollbackAdditions(diff *state.Diff, oldState *state.State) error {
 			}
 			for _, addr := range addrs {
 				slog.Info("rollback: restoring address", "device", dev, "address", addr)
-				mgr.AddAddress(dev, addr)
+				_ = mgr.AddAddress(dev, addr)
 			}
 		}
 		mgr.Close()

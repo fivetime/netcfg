@@ -109,7 +109,7 @@ func (m *DHCPManager) RequestDHCPv4WithContext(ctx context.Context, ifaceName st
 	clientName := filepath.Base(m.externalV4)
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp4-%s.pid", ifaceName)
 	leaseFile := fmt.Sprintf("/var/lib/netcfg/dhcp4-%s.lease", ifaceName)
-	os.MkdirAll("/var/lib/netcfg", 0755)
+	_ = os.MkdirAll("/var/lib/netcfg", 0755)
 
 	var cmd *exec.Cmd
 	switch clientName {
@@ -150,9 +150,9 @@ func (m *DHCPManager) ReleaseDHCPv4(ifaceName string) error {
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp4-%s.pid", ifaceName)
 	switch filepath.Base(m.externalV4) {
 	case "dhclient":
-		exec.Command(m.externalV4, "-r", "-pf", pidFile, ifaceName).Run()
+		_ = exec.Command(m.externalV4, "-r", "-pf", pidFile, ifaceName).Run()
 	case "dhcpcd":
-		exec.Command(m.externalV4, "-k", "-4", ifaceName).Run()
+		_ = exec.Command(m.externalV4, "-k", "-4", ifaceName).Run()
 	}
 	return nil
 }
@@ -172,7 +172,7 @@ func (m *DHCPManager) RequestDHCPv6WithContext(ctx context.Context, ifaceName st
 	clientName := filepath.Base(m.externalV6)
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp6-%s.pid", ifaceName)
 	leaseFile := fmt.Sprintf("/var/lib/netcfg/dhcp6-%s.lease", ifaceName)
-	os.MkdirAll("/var/lib/netcfg", 0755)
+	_ = os.MkdirAll("/var/lib/netcfg", 0755)
 
 	var cmd *exec.Cmd
 	switch clientName {
@@ -197,9 +197,9 @@ func (m *DHCPManager) ReleaseDHCPv6(ifaceName string) error {
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp6-%s.pid", ifaceName)
 	switch filepath.Base(m.externalV6) {
 	case "dhclient":
-		exec.Command(m.externalV6, "-6", "-r", "-pf", pidFile, ifaceName).Run()
+		_ = exec.Command(m.externalV6, "-6", "-r", "-pf", pidFile, ifaceName).Run()
 	case "dhcpcd":
-		exec.Command(m.externalV6, "-k", "-6", ifaceName).Run()
+		_ = exec.Command(m.externalV6, "-k", "-6", ifaceName).Run()
 	}
 	return nil
 }
@@ -236,7 +236,7 @@ func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease) err
 	}
 	addrs, _ := netlink.AddrList(link, netlink.FAMILY_V4)
 	for _, a := range addrs {
-		netlink.AddrDel(link, &a)
+		_ = netlink.AddrDel(link, &a)
 	}
 	ones, _ := lease.Netmask.Size()
 	addr := &netlink.Addr{IPNet: &net.IPNet{IP: lease.IP, Mask: lease.Netmask}}
@@ -244,10 +244,10 @@ func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease) err
 		return fmt.Errorf("add addr %s/%d: %w", lease.IP, ones, err)
 	}
 	if lease.Gateway != nil {
-		netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: lease.Gateway})
+		_ = netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: lease.Gateway})
 	}
 	if lease.MTU > 0 {
-		netlink.LinkSetMTU(link, lease.MTU)
+		_ = netlink.LinkSetMTU(link, lease.MTU)
 	}
 	if len(lease.DNS) > 0 {
 		UpdateResolvConf(lease.DNS, lease.Domain)
@@ -309,7 +309,7 @@ func getDefaultGateway4() net.IP {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && fields[1] == "00000000" {
 			var gw [4]byte
-			fmt.Sscanf(fields[2], "%02x%02x%02x%02x", &gw[3], &gw[2], &gw[1], &gw[0])
+			_, _ = fmt.Sscanf(fields[2], "%02x%02x%02x%02x", &gw[3], &gw[2], &gw[1], &gw[0])
 			return net.IPv4(gw[0], gw[1], gw[2], gw[3])
 		}
 	}

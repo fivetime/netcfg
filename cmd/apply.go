@@ -404,7 +404,7 @@ func parseRouteString(s string) (dst, gw string, table int) {
 			gw = parts[i+1]
 		}
 		if parts[i] == "table" {
-			fmt.Sscanf(parts[i+1], "%d", &table)
+			_, _ = fmt.Sscanf(parts[i+1], "%d", &table)
 		}
 	}
 	return

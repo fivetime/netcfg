@@ -55,7 +55,7 @@ func NewDHCPDaemon() *DHCPDaemon {
 // Start 启动守护进程
 func (d *DHCPDaemon) Start() error {
 	slog.Info("DHCP daemon starting")
-	os.MkdirAll(leaseDir, 0755)
+	_ = os.MkdirAll(leaseDir, 0755)
 
 	// 加载已有租约
 	d.loadLeases()
@@ -105,7 +105,9 @@ func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool) error {
 			}
 
 			// 应用租约
-			d.manager.ApplyDHCPv4Lease(ifaceName, lease)
+			if err := d.manager.ApplyDHCPv4Lease(ifaceName, lease); err != nil {
+				slog.Error("failed to apply DHCPv4 lease", "interface", ifaceName, "error", err)
+			}
 			slog.Info("DHCPv4 lease obtained",
 				"interface", ifaceName,
 				"ip", lease.IP,
@@ -146,14 +148,14 @@ func (d *DHCPDaemon) ReleaseLease(ifaceName string) error {
 	}
 
 	if state.IPv4 != nil {
-		d.manager.ReleaseDHCPv4(ifaceName)
+		_ = d.manager.ReleaseDHCPv4(ifaceName)
 	}
 	if state.IPv6 != nil {
-		d.manager.ReleaseDHCPv6(ifaceName)
+		_ = d.manager.ReleaseDHCPv6(ifaceName)
 	}
 
 	delete(d.leases, ifaceName)
-	os.Remove(filepath.Join(leaseDir, ifaceName+".json"))
+	_ = os.Remove(filepath.Join(leaseDir, ifaceName+".json"))
 
 	slog.Info("lease released", "interface", ifaceName)
 	return nil
@@ -219,7 +221,9 @@ func (d *DHCPDaemon) checkRenewals() {
 				state.ExpireAt = now.Add(newLease.LeaseTime)
 			}
 
-			d.manager.ApplyDHCPv4Lease(ifaceName, newLease)
+			if err := d.manager.ApplyDHCPv4Lease(ifaceName, newLease); err != nil {
+				slog.Error("failed to apply renewed lease", "interface", ifaceName, "error", err)
+			}
 			d.saveLease(ifaceName, state)
 
 			slog.Info("DHCPv4 lease renewed",
@@ -235,7 +239,7 @@ func (d *DHCPDaemon) saveLease(ifaceName string, state *LeaseState) {
 	if err != nil {
 		return
 	}
-	os.WriteFile(filepath.Join(leaseDir, ifaceName+".json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(leaseDir, ifaceName+".json"), data, 0644)
 }
 
 func (d *DHCPDaemon) loadLeases() {

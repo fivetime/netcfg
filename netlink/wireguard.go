@@ -8,7 +8,6 @@ you may not use this file except in compliance with the License.
 package netlink
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net"
 	"time"
@@ -234,14 +233,4 @@ func buildPeerConfig(peer *WireGuardPeer) (*wgtypes.PeerConfig, error) {
 func parseKey(s string) (wgtypes.Key, error) {
 	// wgtypes.ParseKey 接受 Base64 编码的字符串
 	return wgtypes.ParseKey(s)
-}
-
-// isValidKey 检查密钥是否有效
-func isValidKey(s string) bool {
-	// WireGuard 密钥是 32 字节，Base64 编码后为 44 字符
-	if len(s) != 44 {
-		return false
-	}
-	_, err := base64.StdEncoding.DecodeString(s)
-	return err == nil
 }
