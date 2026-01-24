@@ -250,7 +250,7 @@ func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease) err
 		_ = netlink.LinkSetMTU(link, lease.MTU)
 	}
 	if len(lease.DNS) > 0 {
-		UpdateResolvConf(lease.DNS, lease.Domain)
+		_ = UpdateResolvConf(lease.DNS, lease.Domain)
 	}
 	slog.Info("DHCPv4 lease applied", "interface", ifaceName, "ip", lease.IP)
 	return nil

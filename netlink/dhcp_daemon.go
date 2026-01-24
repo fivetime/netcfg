@@ -262,7 +262,7 @@ func (d *DHCPDaemon) loadLeases() {
 		// 检查租约是否过期
 		if time.Now().After(state.ExpireAt) {
 			slog.Info("lease expired, removing", "interface", state.Interface)
-			os.Remove(file)
+			_ = os.Remove(file)
 			continue
 		}
 
