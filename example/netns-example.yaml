@@ -1,0 +1,64 @@
+# Network namespace example
+# This shows how to create isolated network environments
+
+network:
+  version: 2
+
+  netns:
+    # Isolated namespace with macvlan access
+    isolated:
+      macvlan-devices:
+        mv0:
+          link: eth0
+          mode: bridge
+          addresses:
+            - 192.168.1.150/24
+          routes:
+            - to: default
+              via: 192.168.1.1
+      
+      post-script: |
+        # Enable forwarding
+        sysctl -w net.ipv4.ip_forward=1
+        # Add custom iptables rules if needed
+
+    # Router simulation namespace
+    router:
+      dummy-devices:
+        lo1:
+          addresses:
+            - 10.0.0.1/32
+      
+      veth-devices:
+        # WAN side
+        wan0:
+          addresses:
+            - 203.0.113.1/24
+          routes:
+            - to: default
+              via: 203.0.113.254
+          peer:
+            name: wan0-peer
+            netns: ""
+            addresses:
+              - 203.0.113.254/24
+
+        # LAN side
+        lan0:
+          addresses:
+            - 192.168.0.1/24
+          peer:
+            name: lan0-peer
+            netns: client
+            addresses:
+              - 192.168.0.100/24
+
+      post-script: |
+        sysctl -w net.ipv4.ip_forward=1
+        iptables -t nat -A POSTROUTING -o wan0 -j MASQUERADE
+
+    # Client namespace
+    client:
+      # lan0-peer is created by router namespace veth config
+      post-script: |
+        ip route add default via 192.168.0.1

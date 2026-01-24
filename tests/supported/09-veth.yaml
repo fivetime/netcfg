@@ -1,0 +1,11 @@
+network:
+  version: 2
+  virtual-ethernets:
+    veth0:
+      peer: veth1
+      addresses:
+        - 10.200.0.1/24
+    veth1:
+      peer: veth0
+      addresses:
+        - 10.200.0.2/24

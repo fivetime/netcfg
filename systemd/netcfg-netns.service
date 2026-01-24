@@ -1,0 +1,14 @@
+[Unit]
+Description=netcfg network namespace configuration
+Documentation=https://github.com/netcfg/netcfg
+After=netcfg.service network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/netcfg apply --netns-only
+ExecStop=/usr/local/bin/netcfg destroy
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy-policy:
+      addresses:
+        - 192.168.1.10/24
+      routes:
+        - to: 192.168.1.0/24
+          via: 192.168.1.1
+          table: 100
+      routing-policy:
+        - from: 192.168.1.0/24
+          table: 100
+          priority: 100

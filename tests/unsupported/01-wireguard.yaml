@@ -1,0 +1,15 @@
+# WireGuard - 需要 wireguard 内核模块和 wg 工具
+# TODO: 实现 wireguard 支持
+network:
+  version: 2
+  tunnels:
+    wg0:
+      mode: wireguard
+      addresses: [10.10.10.1/24]
+      key: 4GgaQCy68nzNsUE5aJ9fuLzHhB65tAlwbmA72MWnOm8=
+      port: 51820
+      peers:
+        - keys:
+            public: M9nt4YujIOmNrRmpIRTmYSfMdrpvE7u6WkG8FY8WjG4=
+          allowed-ips: [20.20.20.0/24]
+          endpoint: 1.2.3.4:51820

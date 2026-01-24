@@ -1,0 +1,29 @@
+# Veth 跨 netns 测试
+network:
+  version: 2
+  netns:
+    ns1:
+      dummy-devices:
+        lo1:
+          addresses:
+            - 10.1.0.1/32
+      veth-devices:
+        veth-ns1:
+          addresses:
+            - 172.16.0.1/24
+          peer:
+            name: veth-ns2
+            netns: ns2
+            addresses:
+              - 172.16.0.2/24
+      routes:
+        - to: 10.2.0.0/24
+          via: 172.16.0.2
+    ns2:
+      dummy-devices:
+        lo2:
+          addresses:
+            - 10.2.0.1/32
+      routes:
+        - to: 10.1.0.0/24
+          via: 172.16.0.1

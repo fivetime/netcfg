@@ -1,0 +1,14 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy-vrf:
+      addresses:
+        - 10.10.10.1/24
+  vrfs:
+    vrf-red:
+      table: 100
+      interfaces:
+        - dummy-vrf
+      routes:
+        - to: default
+          via: 10.10.10.254

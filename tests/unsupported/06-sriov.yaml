@@ -1,0 +1,11 @@
+# SR-IOV - 需要硬件支持和 sysfs 操作
+# TODO: 实现 SR-IOV 支持
+network:
+  version: 2
+  ethernets:
+    enp3s0f0:
+      embedded-switch-mode: switchdev
+      mtu: 9000
+    enp3s0f0v0:
+      link: enp3s0f0
+      addresses: [10.0.0.10/24]

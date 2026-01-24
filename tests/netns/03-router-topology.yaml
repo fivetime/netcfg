@@ -1,0 +1,47 @@
+# 复杂 netns 拓扑: router + 2 clients
+#
+#  client1 (10.1.0.0/24) ---veth--- router ---veth--- client2 (10.2.0.0/24)
+#
+network:
+  version: 2
+  netns:
+    router:
+      dummy-devices:
+        lo-router:
+          addresses:
+            - 10.255.0.1/32
+      veth-devices:
+        veth-r1:
+          addresses:
+            - 10.1.0.1/24
+          peer:
+            name: veth-c1
+            netns: client1
+            addresses:
+              - 10.1.0.2/24
+        veth-r2:
+          addresses:
+            - 10.2.0.1/24
+          peer:
+            name: veth-c2
+            netns: client2
+            addresses:
+              - 10.2.0.2/24
+      post-script: |
+        sysctl -w net.ipv4.ip_forward=1
+        iptables -t nat -A POSTROUTING -o veth-r1 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -o veth-r2 -j MASQUERADE
+
+    client1:
+      routes:
+        - to: default
+          via: 10.1.0.1
+        - to: 10.2.0.0/24
+          via: 10.1.0.1
+
+    client2:
+      routes:
+        - to: default
+          via: 10.2.0.1
+        - to: 10.1.0.0/24
+          via: 10.2.0.1

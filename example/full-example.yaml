@@ -1,0 +1,76 @@
+# netcfg example configuration
+# Compatible with netplan syntax, with added netns support
+
+network:
+  version: 2
+
+  # Default namespace configuration
+  ethernets:
+    eth0:
+      dhcp4: true
+
+  # Dummy devices in default namespace
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 10.255.255.1/32
+
+  # Network namespace configuration
+  netns:
+    # VPN isolation namespace
+    vpn:
+      # Loopback configuration
+      loopback:
+        addresses:
+          - 127.0.0.1/8
+
+      # Macvlan for external access
+      macvlan-devices:
+        mv-vpn:
+          link: eth0
+          mode: bridge
+          addresses:
+            - 192.168.1.200/24
+          routes:
+            - to: default
+              via: 192.168.1.1
+
+      # Post-setup script
+      post-script: |
+        echo "VPN namespace configured"
+
+    # Container network namespace
+    container:
+      dummy-devices:
+        dummy-container:
+          addresses:
+            - 10.200.0.1/24
+
+      # Veth pair connecting to default namespace
+      veth-devices:
+        veth-container:
+          addresses:
+            - 10.100.0.2/24
+          peer:
+            name: veth-host
+            netns: ""  # Empty means default namespace
+            addresses:
+              - 10.100.0.1/24
+
+    # Multi-tenant simulation
+    tenant1:
+      veth-devices:
+        veth-t1:
+          addresses:
+            - 192.168.100.1/24
+          peer:
+            name: veth-t1-peer
+            netns: tenant2
+            addresses:
+              - 192.168.100.2/24
+
+    tenant2:
+      dummy-devices:
+        dm-t2:
+          addresses:
+            - 10.20.0.1/24

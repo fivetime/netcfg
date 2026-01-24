@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Create symlink for netplan compatibility
+if [ ! -e /usr/sbin/netplan ]; then
+    ln -s /usr/sbin/netcfg /usr/sbin/netplan
+fi
+
+# Create config directory if not exists
+mkdir -p /etc/netcfg
+
+# If /etc/netplan exists and has configs, keep using it
+if [ -d /etc/netplan ] && [ "$(ls -A /etc/netplan/*.yaml 2>/dev/null)" ]; then
+    echo "Note: Found existing netplan configs in /etc/netplan/"
+    echo "netcfg will use /etc/netplan/ as config directory"
+fi
+
+echo "netcfg installed successfully"
+echo "Run 'netcfg apply' to apply network configuration"

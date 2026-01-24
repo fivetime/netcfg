@@ -1,0 +1,17 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy-parent:
+      addresses:
+        - 192.168.1.10/24
+  vlans:
+    vlan100:
+      id: 100
+      link: dummy-parent
+      addresses:
+        - 10.100.0.1/24
+    vlan200:
+      id: 200
+      link: dummy-parent
+      addresses:
+        - 10.200.0.1/24

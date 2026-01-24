@@ -1,0 +1,12 @@
+# 802.1X 认证 - 需要 wpa_supplicant
+# TODO: 实现 802.1X 支持
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      auth:
+        key-management: 802.1x
+        method: peap
+        identity: user@example.com
+        password: secret

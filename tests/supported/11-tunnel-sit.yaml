@@ -1,0 +1,13 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy-tun:
+      addresses:
+        - 203.0.113.10/24
+  tunnels:
+    sit-tunnel:
+      mode: sit
+      local: 203.0.113.10
+      remote: 203.0.113.20
+      addresses:
+        - "2001:db8::1/64"

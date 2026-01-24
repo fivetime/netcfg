@@ -1,0 +1,15 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy0: {}
+    dummy1: {}
+  bridges:
+    br0:
+      interfaces:
+        - dummy0
+        - dummy1
+      addresses:
+        - 192.168.100.1/24
+      parameters:
+        stp: true
+        forward-delay: 4

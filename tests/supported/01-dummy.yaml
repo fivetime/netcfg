@@ -1,0 +1,10 @@
+network:
+  version: 2
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 10.100.0.1/32
+    dummy1:
+      addresses:
+        - 10.100.0.2/32
+        - fd00::1/128

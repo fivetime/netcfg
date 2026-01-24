@@ -1,0 +1,21 @@
+Package: netcfg
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: netcfg authors
+Depends: iproute2
+Conflicts: netplan.io
+Replaces: netplan.io
+Provides: netplan.io
+Description: Network configuration tool with netns support
+ netcfg is a network configuration tool that is compatible with netplan
+ syntax and adds native support for network namespaces (netns).
+ .
+ It uses netlink directly for better performance and security.
+ .
+ Features:
+  - Full netplan YAML compatibility
+  - Native network namespace support
+  - Bridge, bond, VLAN, VXLAN, macvlan support
+  - Direct netlink API (no ip command dependency)

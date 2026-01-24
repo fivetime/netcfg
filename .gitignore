@@ -1,0 +1,33 @@
+# Binaries
+netcfg
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build output
+dist/
+*.deb
+*.rpm
+
+# Test binary
+*.test
+
+# Coverage
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+go.sum

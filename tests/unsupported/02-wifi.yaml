@@ -1,0 +1,11 @@
+# WiFi - 需要 wpa_supplicant 或 iwd
+# TODO: 实现 WiFi 支持
+network:
+  version: 2
+  wifis:
+    wlan0:
+      dhcp4: true
+      access-points:
+        "MyNetwork":
+          password: "secret123"
+        "OpenNetwork": {}

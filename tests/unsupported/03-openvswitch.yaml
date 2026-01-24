@@ -1,0 +1,11 @@
+# Open vSwitch - 需要 OVS 安装和 ovs-vsctl
+# TODO: 实现 OVS 支持
+network:
+  version: 2
+  openvswitch:
+    protocols: [OpenFlow13, OpenFlow14]
+  bridges:
+    ovs-br0:
+      openvswitch: {}
+      addresses: [192.168.1.1/24]
+      interfaces: [eth0]

@@ -1,0 +1,11 @@
+# 基础 netns 测试 - 独立命名空间
+network:
+  version: 2
+  netns:
+    isolated:
+      dummy-devices:
+        dummy0:
+          addresses:
+            - 10.0.0.1/24
+      post-script: |
+        echo "isolated namespace configured"

@@ -1,0 +1,10 @@
+# Modem/移动网络 - 需要 ModemManager
+# TODO: 实现 Modem 支持
+network:
+  version: 2
+  modems:
+    cdc-wdm0:
+      apn: internet
+      username: user
+      password: pass
+      pin: 1234

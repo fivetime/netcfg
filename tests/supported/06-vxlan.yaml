@@ -1,0 +1,15 @@
+network:
+  version: 2
+  dummy-devices:
+    lo1:
+      addresses:
+        - 10.0.0.1/32
+  tunnels:
+    vxlan100:
+      mode: vxlan
+      id: 100
+      local: 10.0.0.1
+      port: 4789
+      link: lo1
+      addresses:
+        - 10.100.100.1/24
