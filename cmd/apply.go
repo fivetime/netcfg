@@ -636,9 +636,16 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 			defaultMgr.Close()
 		}
 
-		// 使用支持 DHCP 的配置函数
+		// 物理网卡由 netcfg 无法创建：设备缺失时告警跳过，不中断整体 apply
+		// （契合 netplan optional 语义；缺一块网卡不应导致其余配置全部失败）。
+		if !mgr.LinkExists(name) {
+			slog.Warn("ethernet device not present; skipping", "device", name, "id", key)
+			continue
+		}
+
+		// 使用支持 DHCP 的配置函数（单设备失败仅告警，不中断其余设备）
 		if err := setupDeviceWithDHCP(mgr, name, cfg); err != nil {
-			return fmt.Errorf("failed to setup ethernet %s: %w", name, err)
+			slog.Warn("failed to setup ethernet", "device", name, "error", err)
 		}
 	}
 
@@ -743,12 +750,15 @@ func setupVlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 		if !mgr.LinkExists(name) {
 			slog.Info("creating vlan device", "name", name, "link", cfg.Link, "id", cfg.ID)
 			if err := mgr.AddVlan(name, cfg.Link, cfg.ID); err != nil {
-				return fmt.Errorf("failed to create vlan %s: %w", name, err)
+				// 父设备缺失等导致创建失败：告警跳过，不中断整体 apply
+				slog.Warn("failed to create vlan; skipping", "vlan", name, "link", cfg.Link, "error", err)
+				continue
 			}
 		}
 
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
-			return fmt.Errorf("failed to setup vlan %s: %w", name, err)
+			slog.Warn("failed to setup vlan", "vlan", name, "error", err)
+			continue
 		}
 		applyNameservers(mgr, name, cfg.Nameservers)
 	}

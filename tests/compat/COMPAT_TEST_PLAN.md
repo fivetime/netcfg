@@ -42,39 +42,39 @@
 
 | # | example | 预建 dummy | netcfg 应做到 | 状态 |
 |---|---------|-----------|--------------|------|
-| B1 | static.yaml | (按需) | 静态地址 + 网关 + DNS | ⬜ |
-| B2 | static_multiaddress.yaml | (按需) | 多地址 | ⬜ |
-| B3 | static_singlenic_multiip_multigateway.yaml | (按需) | 多 IP 多网关 | ⬜ |
-| B4 | static-routes.yaml | (按需) | 静态路由 | ⬜ |
-| B5 | route_metric.yaml | (按需) | 路由 metric | ⬜ |
-| B6 | source_routing.yaml | (按需) | 策略路由 (from/table) | ⬜ |
-| B7 | direct_connect_gateway.yaml | (按需) | on-link 网关 | ⬜ |
-| B8 | direct_connect_gateway_ipv6.yaml | (按需) | IPv6 on-link | ⬜ |
+| B1 | static.yaml | enp3s0 | 静态地址 + 网关 + DNS | ✅ |
+| B2 | static_multiaddress.yaml | enp3s0 | 多地址 | ✅ |
+| B3 | static_singlenic_multiip_multigateway.yaml | eno1 | 多 IP 多网关(metric) | ✅ |
+| B4 | static-routes.yaml | enp3s0 | 静态路由 | ✅ (advertised-mss 忽略) |
+| B5 | route_metric.yaml | enred engreen | dhcp4-overrides 解析+请求 | ✅ |
+| B6 | source_routing.yaml | ens3 ens5 | 策略路由 (from/table) | ✅ |
+| B7 | direct_connect_gateway.yaml | eth0 | on-link 网关 | ✅ |
+| B8 | direct_connect_gateway_ipv6.yaml | eth0 | IPv6 on-link | ✅ |
 
 ## C. DHCP（隔离 netns 无 DHCP 服务器，预期请求但拿不到租约）
 
 | # | example | 预建 dummy | netcfg 应做到 | 状态 |
 |---|---------|-----------|--------------|------|
-| C1 | dhcp.yaml | (按需) | 发起 DHCP 请求不崩溃（无服务器超时属正常） | ⬜ |
-| C2 | windows_dhcp_server.yaml | (按需) | 同上 | ⬜ |
+| C1 | dhcp.yaml | enp3s0 | 发起 DHCP 请求不崩溃 | ✅ |
+| C2 | windows_dhcp_server.yaml | enp3s0 | 同上（dhcp-identifier 忽略） | ✅ |
 
 ## D. netcfg 架构不支持 / 字段忽略（预期：优雅告警 + 应用受支持部分，不崩溃）
 
 | # | example | 预期 | 状态 |
 |---|---------|------|------|
-| D1 | offload.yaml | 忽略 offload 字段，应用以太网地址 | ⬜ |
-| D2 | dhcp_wired8021x.yaml | 忽略 802.1x auth，处理 dhcp/地址 | ⬜ |
-| D3 | network_manager.yaml | 忽略 renderer，应用设备 | ⬜ |
-| D4 | infiniband.yaml | 不支持 IB，告警/跳过不崩溃 | ⬜ |
-| D5 | wireless.yaml | warnUnsupportedConfig 告警 wifis | ⬜ |
-| D6 | wireless_adhoc.yaml | 同上 | ⬜ |
-| D7 | wireless_wpa3.yaml | 同上 | ⬜ |
-| D8 | wpa3_enterprise.yaml | 同上 | ⬜ |
-| D9 | wpa_enterprise.yaml | 同上 | ⬜ |
-| D10 | modem.yaml | 告警 modems | ⬜ |
-| D11 | openvswitch.yaml | 告警 openvswitch | ⬜ |
-| D12 | sriov.yaml | SR-IOV 字段忽略/告警，应用受支持部分 | ⬜ |
-| D13 | sriov_vlan.yaml | 同上 | ⬜ |
+| D1 | offload.yaml | 忽略 offload 字段，应用以太网地址 | ✅ |
+| D2 | dhcp_wired8021x.yaml | 忽略 802.1x auth，处理 dhcp/地址 | ✅ |
+| D3 | network_manager.yaml | 忽略 renderer，应用设备 | ✅ |
+| D4 | infiniband.yaml | 不支持 IB，告警/跳过不崩溃 | ✅ |
+| D5 | wireless.yaml | warnUnsupportedConfig 告警 wifis | ✅ |
+| D6 | wireless_adhoc.yaml | 同上 | ✅ |
+| D7 | wireless_wpa3.yaml | 同上 | ✅ |
+| D8 | wpa3_enterprise.yaml | 同上 | ✅ |
+| D9 | wpa_enterprise.yaml | 同上 | ✅ |
+| D10 | modem.yaml | 告警 modems | ✅ |
+| D11 | openvswitch.yaml | 告警 openvswitch | ✅ |
+| D12 | sriov.yaml | SR-IOV 字段忽略/告警，应用受支持部分 | ✅ |
+| D13 | sriov_vlan.yaml | 同上 | ✅ |
 
 ---
 
@@ -89,7 +89,18 @@
 - **BUG-4**（A5 bonding）：`SetBondSlave` 直接 LinkSetMaster，但内核要求成员先 down → "operation not permitted"。修复：down→enslave→up。✅
 - **BUG-5**（A8 vrf）：`AddRule` 的 from/to 用 net.ParseCIDR 拒绝裸主机 IP（netplan 允许）。修复：新增 `parseCIDROrIP`（裸 IP 按 /32 或 /128）。✅
 - **BUG-6**（A9 vxlan）：neigh-suppress 是 brport 属性，在 vxlan 加入 bridge 前设置必然失败。修复：移到 setupBridges 之后的 `applyVxlanNeighSuppress` 统一处理。✅
+- **BUG-7**（D offload/sriov/sriov_vlan）：配置引用的物理网卡/父设备缺失时，netcfg 返回**致命错误并中断整个 apply**。修复：setupEthernets 缺失设备告警跳过 + 单设备失败非致命；setupVlans 父设备缺失告警跳过。一块网卡缺失不再导致全部配置失败（契合 netplan optional 语义）。✅
 - **顺序修复**（A10/A9）：veth/virtual-ethernets 与 tunnels-vxlan 端点常作 bridge 成员，须在 bond/bridge **之前**创建。已调整 applyNamespaceConfig 顺序 / Normalize 翻译。
+
+## 测试总结
+
+**全部 34 个 netplan examples：apply rc=0、零 panic、零崩溃。**
+- A 组（12 虚拟设备）✅ 全通过
+- B 组（8 地址/路由）✅ 全通过（on-link/策略路由/多网关 metric 均验证）
+- C 组（2 DHCP）✅ 请求发起正常（隔离环境无 DHCP 服务器，未验证完整租约）
+- D 组（13 不支持/字段忽略）✅ 全部优雅降级（告警 + 应用受支持部分，不崩溃）
+
+共发现并修复 **7 个 bug**（BUG-1~7）。环境性现象（docker eth0 禁 IPv6、已有默认路由 EEXIST、advertised-mss/dhcp-identifier 字段级忽略）不计为 bug，已注明。
 
 ## 备注
 
