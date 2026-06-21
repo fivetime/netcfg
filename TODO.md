@@ -305,7 +305,7 @@
 - [x] **N-2 nat44 静态映射**：Nat44AddDelStaticMapping——端口转发(proto+ports)/1:1(addr-only)/external-interface/twice-nat。容器验 DNAT
 - [x] **N-3 nat64**：Nat64PluginEnableDisable + Prefix + Interface + PoolAddrRange
 - [x] **N-4 nat66**：Nat66 静态映射
-- [~] **N-5 幂等/回收**（再 apply 幂等已实现；NAT 条目回收/diff 待补）：再 apply 幂等（吞 "exists"）；NAT 状态入 vpp-state 并回收
+- [x] **N-5 幂等/回收**（再 apply 幂等 + NAT 条目增量回收：interface/pool/static/nat64/nat66 入 vpp-state，删配置即删 VPP）：再 apply 幂等（吞 "exists"）；NAT 状态入 vpp-state 并回收
 - [x] **N-6 测试 + 文档**：tests/vpp NAT 用例（SNAT/端口转发/nat64）；README/INTRODUCTION/example
 - 模式：nat44 `mode: ed`(默认,完整)/`ei`(传统)；cnat/det44/pnat 暂不做
 

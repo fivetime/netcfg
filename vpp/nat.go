@@ -263,3 +263,118 @@ func (a *Applier) applyNat66(ctx context.Context, n *config.Nat66) {
 	}
 	slog.Info("nat66 enabled", "mappings", len(n.Static))
 }
+
+// DeleteNat 删除一条 NAT 规则（增量回收用，IsAdd=false）。
+func (a *Applier) DeleteNat(ctx context.Context, it NatItem) error {
+	switch it.Kind {
+	case "nat44-if":
+		idx, ok, err := a.resolve(ctx, it.Iface)
+		if err != nil || !ok {
+			return err
+		}
+		c := nat44_ed.NewServiceClient(a.conn)
+		switch strings.ToLower(it.Role) {
+		case "output":
+			_, err = c.Nat44EdAddDelOutputInterface(ctx, &nat44_ed.Nat44EdAddDelOutputInterface{IsAdd: false, SwIfIndex: idx})
+		case "inside":
+			_, err = c.Nat44InterfaceAddDelFeature(ctx, &nat44_ed.Nat44InterfaceAddDelFeature{IsAdd: false, Flags: nat_types.NAT_IS_INSIDE, SwIfIndex: idx})
+		default:
+			_, err = c.Nat44InterfaceAddDelFeature(ctx, &nat44_ed.Nat44InterfaceAddDelFeature{IsAdd: false, Flags: nat_types.NAT_IS_OUTSIDE, SwIfIndex: idx})
+		}
+		return err
+	case "nat44-pool":
+		first, err := ip_types.ParseIP4Address(it.Start)
+		if err != nil {
+			return err
+		}
+		last := first
+		if it.End != "" {
+			last, _ = ip_types.ParseIP4Address(it.End)
+		}
+		var flags nat_types.NatConfigFlags
+		if it.TwiceNat {
+			flags |= nat_types.NAT_IS_TWICE_NAT
+		}
+		c := nat44_ed.NewServiceClient(a.conn)
+		_, err = c.Nat44AddDelAddressRange(ctx, &nat44_ed.Nat44AddDelAddressRange{
+			FirstIPAddress: first, LastIPAddress: last, VrfID: uint32(it.VRF), IsAdd: false, Flags: flags})
+		return err
+	case "nat44-static":
+		local, err := ip_types.ParseIP4Address(it.Local)
+		if err != nil {
+			return err
+		}
+		m := &nat44_ed.Nat44AddDelStaticMapping{
+			IsAdd: false, LocalIPAddress: local, Protocol: natProto(it.Proto),
+			LocalPort: uint16(it.LocalPort), ExternalPort: uint16(it.ExternalPort),
+			ExternalSwIfIndex: ^interface_types.InterfaceIndex(0), VrfID: uint32(it.VRF),
+		}
+		var flags nat_types.NatConfigFlags
+		if it.Proto == "" {
+			flags |= nat_types.NAT_IS_ADDR_ONLY
+		}
+		if it.TwiceNat {
+			flags |= nat_types.NAT_IS_TWICE_NAT
+		}
+		m.Flags = flags
+		if it.ExternalIf != "" {
+			idx, ok, err := a.resolve(ctx, it.ExternalIf)
+			if err != nil || !ok {
+				return err
+			}
+			m.ExternalSwIfIndex = idx
+		} else if it.External != "" {
+			if m.ExternalIPAddress, err = ip_types.ParseIP4Address(it.External); err != nil {
+				return err
+			}
+		}
+		c := nat44_ed.NewServiceClient(a.conn)
+		_, err = c.Nat44AddDelStaticMapping(ctx, m)
+		return err
+	case "nat64-if":
+		idx, ok, err := a.resolve(ctx, it.Iface)
+		if err != nil || !ok {
+			return err
+		}
+		flags := nat_types.NAT_IS_OUTSIDE
+		if strings.EqualFold(it.Role, "inside") {
+			flags = nat_types.NAT_IS_INSIDE
+		}
+		c := nat64.NewServiceClient(a.conn)
+		_, err = c.Nat64AddDelInterface(ctx, &nat64.Nat64AddDelInterface{IsAdd: false, Flags: flags, SwIfIndex: idx})
+		return err
+	case "nat64-prefix":
+		pfx, err := ip_types.ParseIP6Prefix(it.Prefix)
+		if err != nil {
+			return err
+		}
+		c := nat64.NewServiceClient(a.conn)
+		_, err = c.Nat64AddDelPrefix(ctx, &nat64.Nat64AddDelPrefix{Prefix: pfx, VrfID: uint32(it.VRF), IsAdd: false})
+		return err
+	case "nat64-pool":
+		start, err := ip_types.ParseIP4Address(it.Start)
+		if err != nil {
+			return err
+		}
+		end := start
+		if it.End != "" {
+			end, _ = ip_types.ParseIP4Address(it.End)
+		}
+		c := nat64.NewServiceClient(a.conn)
+		_, err = c.Nat64AddDelPoolAddrRange(ctx, &nat64.Nat64AddDelPoolAddrRange{StartAddr: start, EndAddr: end, VrfID: uint32(it.VRF), IsAdd: false})
+		return err
+	case "nat66-static":
+		local, err := ip_types.ParseIP6Address(it.Local)
+		if err != nil {
+			return err
+		}
+		ext, err := ip_types.ParseIP6Address(it.External)
+		if err != nil {
+			return err
+		}
+		c := nat66.NewServiceClient(a.conn)
+		_, err = c.Nat66AddDelStaticMapping(ctx, &nat66.Nat66AddDelStaticMapping{IsAdd: false, LocalIPAddress: local, ExternalIPAddress: ext, VrfID: uint32(it.VRF)})
+		return err
+	}
+	return nil
+}

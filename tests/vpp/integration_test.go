@@ -249,3 +249,47 @@ network:
     wan: { addresses: [203.0.113.1/24], vpp: { mode: af-packet, host-if: veth2 } }
 `)
 }
+
+func TestNatReap(t *testing.T) {
+	full := `
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    nat:
+      nat44:
+        enable: true
+        interfaces: [{ name: lan, role: inside }, { name: wan, role: outside }]
+        pools: [{ start: 203.0.113.10 }, { start: 203.0.113.20 }]
+        static:
+          - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }
+          - { proto: tcp, local: 10.0.0.6, local-port: 443, external: 203.0.113.10, external-port: 443 }
+  ethernets:
+    lan: { addresses: [10.0.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+    wan: { addresses: [203.0.113.1/24], vpp: { mode: af-packet, host-if: veth2 } }
+`
+	apply(t, full)
+	mustContain(t, vppctl(t, "show", "nat44", "addresses"), "203.0.113.20", "pool before reap")
+	mustContain(t, vppctl(t, "show", "nat44", "static", "mappings"), "10.0.0.6", "static before reap")
+
+	// 去掉一个 pool 与一个 static → 应被回收
+	apply(t, `
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    nat:
+      nat44:
+        enable: true
+        interfaces: [{ name: lan, role: inside }, { name: wan, role: outside }]
+        pools: [{ start: 203.0.113.10 }]
+        static:
+          - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }
+  ethernets:
+    lan: { addresses: [10.0.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+    wan: { addresses: [203.0.113.1/24], vpp: { mode: af-packet, host-if: veth2 } }
+`)
+	mustNotContain(t, vppctl(t, "show", "nat44", "addresses"), "203.0.113.20", "pool reaped")
+	mustNotContain(t, vppctl(t, "show", "nat44", "static", "mappings"), "10.0.0.6", "static reaped")
+	mustContain(t, vppctl(t, "show", "nat44", "static", "mappings"), "10.0.0.5", "kept static remains")
+}

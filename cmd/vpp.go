@@ -212,13 +212,72 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 		a.ApplyNat(ctx, global.NAT)
 	}
 
-	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备（孤儿）。
+	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备 + NAT 规则（孤儿）。
 	desired := buildDesiredVPPState(v)
+	if global != nil && global.NAT != nil {
+		desired.Nat = natItemsFromConfig(global.NAT)
+	}
 	reapVPPOrphans(ctx, a, prev, desired)
+	reapNatOrphans(ctx, a, prev, desired)
 	if err := desired.Save(); err != nil {
 		slog.Warn("failed to save VPP state", "error", err)
 	}
 	return nil
+}
+
+// natItemsFromConfig 把 NAT 配置展开为可回收的 NatItem 列表。
+func natItemsFromConfig(nat *config.VPPNat) []vpp.NatItem {
+	b := func(p *bool) bool { return p != nil && *p }
+	enabled := func(p *bool) bool { return p == nil || *p }
+	var items []vpp.NatItem
+	if n := nat.Nat44; n != nil && enabled(n.Enable) {
+		for _, i := range n.Interfaces {
+			items = append(items, vpp.NatItem{Kind: "nat44-if", Iface: i.Name, Role: strings.ToLower(i.Role)})
+		}
+		for _, p := range n.Pools {
+			items = append(items, vpp.NatItem{Kind: "nat44-pool", Start: p.Start, End: p.End, VRF: p.VRF, TwiceNat: b(p.TwiceNat)})
+		}
+		for _, s := range n.Static {
+			items = append(items, vpp.NatItem{Kind: "nat44-static", Proto: strings.ToLower(s.Proto), Local: s.Local,
+				LocalPort: s.LocalPort, External: s.External, ExternalIf: s.ExternalInterface,
+				ExternalPort: s.ExternalPort, VRF: s.VRF, TwiceNat: b(s.TwiceNat)})
+		}
+	}
+	if n := nat.Nat64; n != nil && enabled(n.Enable) {
+		if n.Prefix != "" {
+			items = append(items, vpp.NatItem{Kind: "nat64-prefix", Prefix: n.Prefix})
+		}
+		for _, i := range n.Interfaces {
+			items = append(items, vpp.NatItem{Kind: "nat64-if", Iface: i.Name, Role: strings.ToLower(i.Role)})
+		}
+		for _, p := range n.Pools {
+			items = append(items, vpp.NatItem{Kind: "nat64-pool", Start: p.Start, End: p.End, VRF: p.VRF})
+		}
+	}
+	if n := nat.Nat66; n != nil {
+		for _, s := range n.Static {
+			items = append(items, vpp.NatItem{Kind: "nat66-static", Local: s.Local, External: s.External, VRF: s.VRF})
+		}
+	}
+	return items
+}
+
+// reapNatOrphans 删除 prev 中有、desired 中无的 NAT 规则。
+func reapNatOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.State) {
+	want := map[string]bool{}
+	for _, it := range desired.Nat {
+		want[it.Key()] = true
+	}
+	for _, it := range prev.Nat {
+		if want[it.Key()] {
+			continue
+		}
+		if err := a.DeleteNat(ctx, it); err != nil {
+			slog.Warn("vpp reap nat rule failed", "kind", it.Kind, "error", err)
+		} else {
+			slog.Info("vpp removed orphan nat rule", "kind", it.Kind, "local", it.Local, "iface", it.Iface, "start", it.Start)
+		}
+	}
 }
 
 // buildDesiredVPPState 从本次 VPP 设备集合构造期望状态（用于下次回收对比）。

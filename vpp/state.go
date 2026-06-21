@@ -9,6 +9,7 @@ package vpp
 
 import (
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -27,9 +28,38 @@ type DevInfo struct {
 	Port   int    `json:"port,omitempty"`
 }
 
-// State 是 netcfg 在 VPP 上创建的设备集合（name → DevInfo）。
+// NatItem 记录一条 NAT 规则（用于增量回收）。Kind 决定其余字段含义：
+// nat44-if/nat64-if（Iface,Role）、nat44-pool/nat64-pool（Start,End,VRF,TwiceNat）、
+// nat44-static（Proto,Local,LocalPort,External,ExternalIf,ExternalPort,VRF,TwiceNat）、
+// nat64-prefix（Prefix,VRF）、nat66-static（Local,External,VRF）。
+type NatItem struct {
+	Kind         string `json:"kind"`
+	Iface        string `json:"iface,omitempty"`
+	Role         string `json:"role,omitempty"`
+	Proto        string `json:"proto,omitempty"`
+	Local        string `json:"local,omitempty"`
+	LocalPort    int    `json:"local_port,omitempty"`
+	External     string `json:"external,omitempty"`
+	ExternalIf   string `json:"external_if,omitempty"`
+	ExternalPort int    `json:"external_port,omitempty"`
+	Start        string `json:"start,omitempty"`
+	End          string `json:"end,omitempty"`
+	Prefix       string `json:"prefix,omitempty"`
+	VRF          int    `json:"vrf,omitempty"`
+	TwiceNat     bool   `json:"twice_nat,omitempty"`
+}
+
+// Key 返回 NatItem 的规范化标识（用于 diff 去重）。
+func (i NatItem) Key() string {
+	return fmt.Sprintf("%s|%s|%s|%s|%s|%d|%s|%s|%d|%s|%s|%d|%t",
+		i.Kind, i.Iface, i.Role, i.Proto, i.Local, i.LocalPort,
+		i.External, i.ExternalIf, i.ExternalPort, i.Start, i.End, i.VRF, i.TwiceNat)
+}
+
+// State 是 netcfg 在 VPP 上创建的设备集合（name → DevInfo）+ NAT 规则。
 type State struct {
 	Devices map[string]DevInfo `json:"devices"`
+	Nat     []NatItem          `json:"nat,omitempty"`
 }
 
 // NewState 返回空状态。

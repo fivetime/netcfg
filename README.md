@@ -324,8 +324,8 @@ network:
 ```
 
 NAT applies live via the nat44_ed / nat64 / nat66 plugins. Re-apply is idempotent
-(adding existing entries is a no-op). Note: removing a NAT entry from config is not
-yet auto-reaped from VPP (re-apply is additive).
+(adding existing entries is a no-op), and removing a NAT entry/interface/pool from
+config reaps it from VPP on the next apply.
 
 ## Comparison with netplan
 
