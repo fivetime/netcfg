@@ -881,6 +881,9 @@ func mergeConfig(dst, src *Config) {
 	}
 
 	// 合并渲染器
+	if src.Network.VPP != nil {
+		dst.Network.VPP = src.Network.VPP // VPP 全局段（后文件覆盖前文件）
+	}
 	if src.Network.Renderer != "" {
 		dst.Network.Renderer = src.Network.Renderer
 	}

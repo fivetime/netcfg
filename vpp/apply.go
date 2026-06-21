@@ -19,6 +19,7 @@ import (
 	"github.com/netcfg/netcfg/config"
 
 	af_packet "go.fd.io/govpp/binapi/af_packet"
+	"go.fd.io/govpp/binapi/avf"
 	"go.fd.io/govpp/binapi/bond"
 	"go.fd.io/govpp/binapi/ethernet_types"
 	"go.fd.io/govpp/binapi/fib_types"
@@ -38,6 +39,7 @@ type Applier struct {
 	l2c   l2.RPCService
 	bondc bond.RPCService
 	vxc   vxlan.RPCService
+	avfc  avf.RPCService
 
 	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
 	idx map[string]interface_types.InterfaceIndex
@@ -53,8 +55,87 @@ func NewApplier(c *Client) *Applier {
 		l2c:   l2.NewServiceClient(conn),
 		bondc: bond.NewServiceClient(conn),
 		vxc:   vxlan.NewServiceClient(conn),
+		avfc:  avf.NewServiceClient(conn),
 		idx:   map[string]interface_types.InterfaceIndex{},
 	}
+}
+
+// findByName 按 VPP 接口名查 sw_if_index（dpdk 启动期创建的接口无 tag，用名字匹配）。
+func (a *Applier) findByName(ctx context.Context, name string) (interface_types.InterfaceIndex, bool, error) {
+	stream, err := a.intf.SwInterfaceDump(ctx, &interfaces.SwInterfaceDump{})
+	if err != nil {
+		return 0, false, err
+	}
+	for {
+		d, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, false, err
+		}
+		if d.InterfaceName == name {
+			return d.SwIfIndex, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
+// parsePCI 把 "0000:03:02.0" 转成 VPP vlib_pci_addr_t 的 u32 编码
+// （domain<<16 | bus<<8 | slot<<3 | function）。
+func parsePCI(s string) (uint32, error) {
+	var domain, bus, slot, fn uint32
+	if _, err := fmt.Sscanf(s, "%x:%x:%x.%x", &domain, &bus, &slot, &fn); err != nil {
+		return 0, fmt.Errorf("invalid pci address %q: %w", s, err)
+	}
+	return domain<<16 | bus<<8 | (slot&0x1f)<<3 | (fn & 0x7), nil
+}
+
+// ensureAvf 用 avf 原生驱动接管 Intel VF（运行态，免 DPDK）。
+func (a *Applier) ensureAvf(ctx context.Context, name, pci string) (interface_types.InterfaceIndex, error) {
+	if idx, ok, err := a.resolve(ctx, name); err != nil {
+		return 0, err
+	} else if ok {
+		return idx, nil
+	}
+	addr, err := parsePCI(pci)
+	if err != nil {
+		return 0, err
+	}
+	rep, err := a.avfc.AvfCreate(ctx, &avf.AvfCreate{PciAddr: addr})
+	if err != nil {
+		if strings.Contains(err.Error(), "unknown message") {
+			return 0, fmt.Errorf("avf %s: avf binding mismatches running VPP — regenerate avf binapi for the target VPP version: %w", name, err)
+		}
+		return 0, fmt.Errorf("avf create %s (pci %s): %w", name, pci, err)
+	}
+	if err := a.tagInterface(ctx, rep.SwIfIndex, name); err != nil {
+		slog.Warn("failed to tag vpp avf interface", "device", name, "error", err)
+	}
+	a.idx[name] = rep.SwIfIndex
+	return rep.SwIfIndex, nil
+}
+
+// ensureDpdk 复用 VPP 在启动期（按 startup.conf dpdk{dev{name}}）创建的接口。
+// 找不到说明需用 netcfg 生成的 startup.conf 重启 VPP。
+func (a *Applier) ensureDpdk(ctx context.Context, name string) (interface_types.InterfaceIndex, error) {
+	if idx, ok, err := a.resolve(ctx, name); err != nil {
+		return 0, err
+	} else if ok {
+		return idx, nil
+	}
+	idx, ok, err := a.findByName(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("dpdk interface %q not present in VPP — apply generated /etc/vpp/startup.conf and restart VPP", name)
+	}
+	if err := a.tagInterface(ctx, idx, name); err != nil {
+		slog.Warn("failed to tag vpp dpdk interface", "device", name, "error", err)
+	}
+	a.idx[name] = idx
+	return idx, nil
 }
 
 // resolve 按名查 sw_if_index：先查本次缓存，再按 tag 查 VPP。
@@ -238,7 +319,11 @@ func (a *Applier) ApplyEthernet(ctx context.Context, name string, e *config.Ethe
 		idx, err = a.ensureAfPacket(ctx, name, hostIf)
 	case "loopback":
 		idx, err = a.ensureLoopback(ctx, name)
-	case "dpdk", "avf", "rdma", "memif", "tap":
+	case "avf":
+		idx, err = a.ensureAvf(ctx, name, vppPCI(e))
+	case "dpdk":
+		idx, err = a.ensureDpdk(ctx, name)
+	case "rdma", "memif", "tap":
 		slog.Warn("vpp interface mode not yet implemented (deferred); skipping", "device", name, "mode", mode)
 		return nil
 	default:
@@ -524,4 +609,12 @@ func autoBdID(name string) uint32 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(name))
 	return h.Sum32()%16_000_000 + 1
+}
+
+// vppPCI 取设备 vpp 块的 PCI（avf/dpdk 用）。
+func vppPCI(e *config.Ethernet) string {
+	if e.VPP != nil {
+		return e.VPP.PCI
+	}
+	return ""
 }

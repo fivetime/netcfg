@@ -283,11 +283,11 @@
 - [x] **V1b 验收**：容器断言 vlan/bridge/bond/vxlan
 
 ### 阶段 V1c — 独占模式 + startup.conf + SR-IOV
-- [ ] **V1c-1 dpdk 模式**：mode:dpdk（pci）→ 写 startup.conf dpdk{dev}；与运行态接口配置衔接
-- [ ] **V1c-2 avf 模式**：mode:avf（pci）→ AvfCreate（avf 插件）
-- [ ] **V1c-3 startup.conf 生成**：vpp.startup → /etc/vpp/startup.conf（main-core/workers/corelist/hugepages/dpdk/uio-driver）；标注需 VPP 重启
-- [ ] **V1c-4 SR-IOV VF 链路**：复用 P2-3 建 VF（内核）+ 绑 vfio + VPP 接管 + VPP bond；顺序编排
-- [ ] **V1c 验收**：真机或带 VF 环境（容器无法完整验证，标注）
+- [~] **V1c-1 dpdk 模式**（startup.conf dev + 运行态按名 resolve；运行验证需真机 PCI）：mode:dpdk（pci）→ 写 startup.conf dpdk{dev}；与运行态接口配置衔接
+- [~] **V1c-2 avf 模式**（AvfCreate 代码就绪；25.10 avf binapi 对 26.02 CRC 不匹配，需重生成 + Intel VF 验证）：mode:avf（pci）→ AvfCreate（avf 插件）
+- [x] **V1c-3 startup.conf 生成**（config.GenerateStartupConf，保留 socksvr/cpu/dpdk；单测 + 容器验证）：vpp.startup → /etc/vpp/startup.conf（main-core/workers/corelist/hugepages/dpdk/uio-driver）；标注需 VPP 重启
+- [~] **V1c-4 SR-IOV VF 链路**（dpdk dev 清单承载 VF PCI + 内核建 VF 复用 P2-3；完整运行链需真机）：复用 P2-3 建 VF（内核）+ 绑 vfio + VPP 接管 + VPP bond；顺序编排
+- [~] **V1c 验收**（startup.conf 生成 + dpdk/avf 优雅降级已容器验证；dpdk/avf/SR-IOV 运行态需真机 PCI/VF）：真机或带 VF 环境（容器无法完整验证，标注）
 
 ### 阶段 S — 状态与持久化
 - [ ] **S-1 VPP 侧 state**：apply 后记录 VPP 已创建对象；与 state.go 统一或独立 vpp state

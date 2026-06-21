@@ -9,6 +9,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -386,5 +387,26 @@ func TestValidateVPP(t *testing.T) {
 	}}}
 	if err := ValidateVPP(ok); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+func TestGenerateStartupConf(t *testing.T) {
+	mc, w := 1, 2
+	g := &VPPGlobal{
+		APISocket: "/run/vpp/api.sock",
+		Startup:   &VPPStartup{MainCore: &mc, Workers: &w, Dpdk: &VPPDpdk{UioDriver: "vfio-pci"}},
+	}
+	conf := GenerateStartupConf(g, []DpdkDev{{Name: "vf0", PCI: "0000:03:02.0"}})
+	for _, want := range []string{
+		"socket-name /run/vpp/api.sock", // netcfg 连接所需，必须保留
+		"main-core 1",
+		"workers 2",
+		"uio-driver vfio-pci",
+		"dev 0000:03:02.0 {",
+		"name vf0",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("startup.conf missing %q in:\n%s", want, conf)
+		}
 	}
 }

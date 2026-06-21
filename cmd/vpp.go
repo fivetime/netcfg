@@ -11,11 +11,37 @@ package cmd
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sort"
+	"strings"
 
 	"github.com/netcfg/netcfg/config"
 	"github.com/netcfg/netcfg/vpp"
 )
+
+const vppStartupConfPath = "/etc/vpp/startup.conf"
+
+// generateStartupConf 在存在 dpdk 独占设备或显式 vpp.startup 时，生成
+// /etc/vpp/startup.conf（开机持久；改动需 VPP 重启才生效）。
+func generateStartupConf(global *config.VPPGlobal, v *vppSet) {
+	var dpdk []config.DpdkDev
+	for _, name := range sortedKeys(v.ethernets) {
+		e := v.ethernets[name]
+		if e.VPP != nil && strings.EqualFold(e.VPP.Mode, "dpdk") && e.VPP.PCI != "" {
+			dpdk = append(dpdk, config.DpdkDev{Name: name, PCI: e.VPP.PCI})
+		}
+	}
+	hasStartup := global != nil && global.Startup != nil
+	if len(dpdk) == 0 && !hasStartup {
+		return
+	}
+	conf := config.GenerateStartupConf(global, dpdk)
+	if err := os.WriteFile(vppStartupConfPath, []byte(conf), 0644); err != nil {
+		slog.Warn("failed to write VPP startup.conf", "path", vppStartupConfPath, "error", err)
+		return
+	}
+	slog.Info("generated VPP startup.conf (restart VPP to apply dpdk/cpu changes)", "path", vppStartupConfPath, "dpdk_devices", len(dpdk))
+}
 
 // vppSet 收集归 VPP 管的设备（按类型）。
 type vppSet struct {
@@ -133,6 +159,9 @@ func splitVPPDevices(ns *config.Namespace, globalRenderer string) (*config.Names
 // setupVPP 处理 VPP 设备：连接 + 兼容性自检后，把 ethernet 设备下发到 VPP（V1a）。
 // bridge/bond/vlan/tunnel 暂记录为延后（V1b）。
 func setupVPP(global *config.VPPGlobal, v *vppSet) error {
+	// 生成 startup.conf（dpdk/cpu，开机持久；需重启 VPP 生效）
+	generateStartupConf(global, v)
+
 	sock := ""
 	if global != nil {
 		sock = global.APISocket
