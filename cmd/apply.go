@@ -667,6 +667,9 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 		// 网卡 offload（best-effort，经 ethtool -K）
 		applyOffload(name, cfg)
 
+		// 其它物理网卡杂项：wakeonlan / infiniband-mode / emit-lldp
+		applyEthernetExtras(name, cfg)
+
 		// 802.1X / EAP：生成 wpa_supplicant 配置并直接拉起（init-agnostic）
 		if cfg.Auth != nil {
 			setup8021x(name, cfg.Auth)

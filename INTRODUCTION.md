@@ -146,7 +146,7 @@
 | MTU 配置 | ✅ | 最大传输单元 |
 | MAC 地址 | ✅ | 自定义硬件地址 |
 | 混杂模式 | ⏳ | promiscuous mode（未实现） |
-| Wake-on-LAN | ⏳ | 远程唤醒（字段存在，未应用，见 TODO P2-6） |
+| Wake-on-LAN | ✅ | 远程唤醒（ethtool wol，见 TODO P2-6） |
 | 链路检测 | ✅ | carrier/dormant 状态（status 显示） |
 | optional 标记 | ✅ | 设备可选，不阻塞启动（status --wait，见 TODO P0-5） |
 | DNS 配置 | ✅ | nameservers/search domains（resolvectl/resolv.conf，见 TODO P0-4） |

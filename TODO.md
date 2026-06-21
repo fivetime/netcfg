@@ -194,7 +194,15 @@
 - [ ] `receive/transmit-checksum-offload, tcp/tcp6-segmentation-offload, generic-segmentation-offload, generic-receive-offload, large-receive-offload`（netplan-yaml.md:169-209）
 - 需调用 ethtool（或 ethtool netlink）
 
-### P2-6 其他设备级缺口 · **S~M**
+### P2-6 其他设备级缺口 · **S~M** · 🟡 netplan 对齐项完成
+已完成（netplan 有、本地可做）：
+- [x] **wakeonlan 实际生效**：`ethtool -s <dev> wol g`（cmd/offload.go applyWakeonlan）
+- [x] **infiniband-mode**：sysfs `/sys/class/net/<dev>/mode`（connected/datagram）
+- [x] **emit-lldp**：netplan 自身注明"networkd back end only"，内核无 LLDP 发送开关 → schema + 显式告警（不静默）
+延后/不做：
+- tunnel encap(fou/gue) / GRE checksum / 6in4-4in6：**netplan tunnels 无这些字段**，按"不自造语法"不加
+- tun/tap 高级(user/group/multi-queue/vnet-hdr)：netplan 无 tun/tap 设备类型（netcfg 扩展），非对齐项，低优先延后
+- 验证：veth 上 wakeonlan 成功、infiniband-mode 非 IB 设备优雅告警、emit-lldp 告警，rc=0
 - [ ] `emit-lldp`（netplan-yaml.md:165）
 - [ ] `infiniband-mode`（connected/datagram，netplan-yaml.md:1058）
 - [ ] Tunnel 高级：encap(fou/gue)、GRE key/checksum、6in4/4in6

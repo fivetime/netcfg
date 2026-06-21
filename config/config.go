@@ -149,8 +149,10 @@ type Ethernet struct {
 	RAOverrides    *RAOverrides     `yaml:"ra-overrides,omitempty"`
 	IPv6Privacy    *bool            `yaml:"ipv6-privacy,omitempty"`
 	LinkLocal      []string         `yaml:"link-local,omitempty"`
-	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`
-	Auth           *Auth            `yaml:"auth,omitempty"` // 802.1X/EAP（生成 wpa_supplicant 配置，直接 spawn）
+	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`       // WoL（ethtool -s wol g）
+	EmitLLDP       *bool            `yaml:"emit-lldp,omitempty"`       // 需 LLDP daemon，netcfg 不实现（告警）
+	InfinibandMode string           `yaml:"infiniband-mode,omitempty"` // IPoIB: connected/datagram（sysfs）
+	Auth           *Auth            `yaml:"auth,omitempty"`            // 802.1X/EAP（生成 wpa_supplicant 配置，直接 spawn）
 
 	// SR-IOV（physical 属性）
 	Link                 string `yaml:"link,omitempty"`                   // VF 所属 PF（VF ethernet 上）

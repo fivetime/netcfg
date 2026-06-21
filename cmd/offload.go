@@ -10,12 +10,55 @@ Copyright © 2024 netcfg authors
 package cmd
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/netcfg/netcfg/config"
 )
+
+// applyEthernetExtras 应用其它物理网卡杂项：wakeonlan / infiniband-mode / emit-lldp。
+func applyEthernetExtras(name string, cfg *config.Ethernet) {
+	if cfg.Wakeonlan {
+		applyWakeonlan(name)
+	}
+	if cfg.InfinibandMode != "" {
+		applyInfinibandMode(name, cfg.InfinibandMode)
+	}
+	if cfg.EmitLLDP != nil && *cfg.EmitLLDP {
+		// netplan 自身亦注明 emit-lldp 仅 networkd 后端支持；内核无 LLDP 发送开关，
+		// 需 LLDP daemon。netcfg 不实现，显式告警避免静默。
+		slog.Warn("emit-lldp not honored: requires an LLDP daemon (e.g. networkd/lldpd); netcfg does not emit LLDP",
+			"device", name)
+	}
+}
+
+// applyWakeonlan 经 ethtool 启用 Wake-on-LAN（magic packet）。
+func applyWakeonlan(name string) {
+	if _, err := exec.LookPath("ethtool"); err != nil {
+		slog.Warn("ethtool not found; wakeonlan skipped", "device", name)
+		return
+	}
+	if out, err := exec.Command("ethtool", "-s", name, "wol", "g").CombinedOutput(); err != nil {
+		slog.Warn("failed to set wakeonlan", "device", name,
+			"error", err, "output", strings.TrimSpace(string(out)))
+		return
+	}
+	slog.Info("enabled wake-on-lan", "device", name)
+}
+
+// applyInfinibandMode 经 sysfs 设置 IPoIB 模式（connected/datagram）。
+func applyInfinibandMode(name, mode string) {
+	path := fmt.Sprintf("/sys/class/net/%s/mode", name)
+	if err := os.WriteFile(path, []byte(mode), 0644); err != nil {
+		slog.Warn("failed to set infiniband-mode (not an IPoIB device?)",
+			"device", name, "mode", mode, "error", err)
+		return
+	}
+	slog.Info("set infiniband mode", "device", name, "mode", mode)
+}
 
 // applyOffload 按 cfg 中已设置（非 nil）的 offload 字段调用 ethtool -K。
 // 一次性把所有字段拼成一条 ethtool 命令下发。

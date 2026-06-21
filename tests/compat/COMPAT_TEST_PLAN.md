@@ -65,7 +65,7 @@
 | D1 | offload.yaml | 经 ethtool -K 应用 offload (P2-5) | ✅ |
 | D2 | dhcp_wired8021x.yaml | 生成 wpa_supplicant conf+unit (P1-3) | ✅ |
 | D3 | network_manager.yaml | 忽略 renderer，应用设备 | ✅ |
-| D4 | infiniband.yaml | 不支持 IB，告警/跳过不崩溃 | ✅ |
+| D4 | infiniband.yaml | infiniband-mode 经 sysfs (P2-6) | ✅ |
 | D5 | wireless.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
 | D6 | wireless_adhoc.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
 | D7 | wireless_wpa3.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
