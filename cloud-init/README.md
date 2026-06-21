@@ -20,6 +20,14 @@ cloud-init
             └── 调用 netcfg apply
 ```
 
+## 运行模型（一次性，无需常驻）
+
+cloud-init 渲染器对 netcfg 的调用是**一次性**的：cloud-init（开机运行、跑完即退）生成 `/etc/netplan/50-cloud-init.yaml` 后调用一次 `netcfg apply`，netcfg 把配置写入内核即退出。**cloud-init 集成不需要 netcfg 常驻进程。**
+
+唯一需要常驻的是 **DHCP 租约续期**（协议要求）——云上 VM 多用 DHCP，可由可选的 `netcfg daemon`（或外部 dhclient/dhcpcd 自续约）负责；这与配置来自 cloud-init 还是手动 apply 无关。
+
+netcfg **不依赖 systemd-networkd / D-Bus**，可在任意 init 系统（systemd / OpenRC / runit 等）的 cloud-init 环境中工作。
+
 ## 安装
 
 ```bash
@@ -189,7 +197,10 @@ cloud-init single --name cc_network
 
 | 特性 | netplan | netcfg |
 |------|---------|--------|
-| 后端 | systemd-networkd / NM | 直接 netlink |
+| 后端 | systemd-networkd / NM | 直接 netlink（无后端服务） |
+| init 系统 | 偏向 systemd | init-agnostic（systemd/OpenRC/runit…） |
+| systemd-networkd / D-Bus | 需要 | 不需要 |
 | netns 支持 | ❌ | ✅ |
 | 依赖 | Python + 后端服务 | 单一 Go 二进制 |
-| DHCP | 后端管理 | 内置 daemon |
+| 运行模型 | 渲染后交后端常驻 | 一次性 apply（DHCP 续期用可选 daemon） |
+| DHCP | 后端管理 | 内置纯 Go 客户端（外部客户端兜底） |
