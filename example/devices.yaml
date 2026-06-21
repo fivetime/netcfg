@@ -1,0 +1,117 @@
+# netcfg 支持的全部设备类型参考（内核后端）。每段独立，按需取用。
+network:
+  version: 2
+
+  ethernets:
+    eth0:
+      addresses: [10.0.0.10/24]
+
+  # dummy 虚拟设备
+  dummy-devices:
+    dummy0:
+      addresses: [10.255.0.1/32]
+
+  # netplan 标准 veth 对（同 ns 内一对端点）
+  virtual-ethernets:
+    veth0-a:
+      peer: veth0-b
+      addresses: [10.1.0.1/24]
+    veth0-b:
+      peer: veth0-a
+      addresses: [10.1.0.2/24]
+
+  # macvlan（基于 MAC 的虚拟化）
+  macvlan-devices:
+    mv0:
+      link: eth0
+      mode: bridge            # bridge/vepa/private/passthru/source
+      addresses: [10.2.0.1/24]
+
+  # macvtap
+  macvtap-devices:
+    mvt0:
+      link: eth0
+      mode: bridge
+
+  # ipvlan（基于 IP 的虚拟化）
+  ipvlan-devices:
+    ipv0:
+      link: eth0
+      mode: l2                # l2/l3/l3s
+      addresses: [10.3.0.1/24]
+
+  # 链路聚合
+  bonds:
+    bond0:
+      interfaces: [eth1, eth2]
+      addresses: [10.4.0.1/24]
+      parameters:
+        mode: 802.3ad
+        lacp-rate: fast
+        mii-monitor-interval: 100
+        transmit-hash-policy: layer3+4
+
+  # 网桥（含 STP + EVPN vlan-filtering）
+  bridges:
+    br0:
+      interfaces: [eth3]
+      addresses: [10.5.0.1/24]
+      vlan-filtering: true
+      parameters:
+        stp: true
+        forward-delay: 4
+        hello-time: 2
+        max-age: 20
+        priority: 32768
+
+  # 802.1Q VLAN
+  vlans:
+    eth0.100:
+      id: 100
+      link: eth0
+      addresses: [10.6.0.1/24]
+
+  # 隧道（netplan tunnels:mode）
+  tunnels:
+    # VXLAN（含 netcfg 的 EVPN 扩展字段）
+    vxlan100:
+      mode: vxlan
+      id: 100
+      local: 10.0.0.10
+      remote: 10.0.0.20
+      port: 4789
+    # GRE
+    gre0:
+      mode: gre
+      local: 10.0.0.10
+      remote: 10.0.0.30
+      addresses: [10.7.0.1/30]
+    # WireGuard（密钥/peer 经 keys.public、allowed-ips、endpoint）
+    wg0:
+      mode: wireguard
+      key: "QODA0Q2...本端私钥base64..."
+      port: 51820
+      addresses: [10.8.0.1/24]
+      peers:
+        - keys:
+            public: "fE9b...对端公钥base64..."
+          endpoint: 203.0.113.5:51820
+          allowed-ips: [10.8.0.2/32]
+          keepalive: 25
+
+  # VRF 路由隔离
+  vrfs:
+    vrf-blue:
+      table: 100
+      interfaces: [eth0.100]
+      routes:
+        - to: 10.99.0.0/24
+          via: 10.6.0.254
+
+  # TUN / TAP
+  tun-devices:
+    tun0:
+      addresses: [10.9.0.1/30]
+  tap-devices:
+    tap0:
+      addresses: [10.10.0.1/24]

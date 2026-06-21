@@ -1,0 +1,51 @@
+# WiFi 与有线 802.1X 示例。
+# 二者都需 wpa_supplicant：netcfg 生成 /etc/netcfg/wpa-<iface>.conf 并直接
+# spawn（init-agnostic，不依赖 systemd/networkd）。见 init/README.md。
+network:
+  version: 2
+
+  wifis:
+    wlan0:
+      regulatory-domain: CN
+      dhcp4: true
+      access-points:
+        # WPA2-PSK
+        "home-wifi":
+          password: "s3cret-passphrase"
+        # WPA3-SAE
+        "home-wifi-6":
+          auth:
+            key-management: sae
+            password: "s3cret-passphrase"
+        # 开放网络
+        "guest-open":
+          auth:
+            key-management: none
+        # 企业 EAP-PEAP
+        "corp-eap":
+          auth:
+            key-management: eap
+            method: peap
+            identity: "user@corp.example.com"
+            password: "userpass"
+            ca-certificate: /etc/ssl/certs/corp-ca.pem
+            phase2-auth: MSCHAPV2
+        # 隐藏 + 指定 5GHz 信道
+        "hidden-ap":
+          hidden: true
+          band: 5GHz
+          channel: 36
+          password: "anotherpass"
+
+  ethernets:
+    # 有线 802.1X（EAP-TLS，证书认证）
+    eth0:
+      dhcp4: true
+      auth:
+        key-management: 802.1x
+        method: tls
+        identity: "host.corp.example.com"
+        ca-certificate: /etc/ssl/certs/corp-ca.pem
+        client-certificate: /etc/ssl/certs/host.pem
+        client-key: /etc/ssl/private/host.key
+        client-key-password: "keypass"

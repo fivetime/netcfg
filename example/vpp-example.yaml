@@ -6,26 +6,49 @@ network:
   version: 2
   renderer: vpp                      # 全局走 VPP（继承；混合时按设备覆盖 renderer）
 
-  # 可选：VPP 运行时/启动配置（生成 /etc/vpp/startup.conf，改动需重启 VPP）
   vpp:
     api-socket: /run/vpp/api.sock
+
+    # 可选：生成 /etc/vpp/startup.conf（dpdk/cpu，改动需重启 VPP）
     startup:
       main-core: 1
       workers: 2
       dpdk:
         uio-driver: vfio-pci
 
+    # NAT（netcfg 扩展，nat44/nat64/nat66）
+    nat:
+      nat44:
+        enable: true
+        mode: ed                     # ed(默认,完整) | ei
+        sessions: 63000
+        interfaces:
+          - { name: eth0, role: inside }
+          - { name: vf0, role: outside }   # 或 role: output 出口动态 SNAT
+        pools:
+          - { start: 203.0.113.10, end: 203.0.113.20 }
+        static:
+          - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }  # 端口转发
+          - { local: 10.0.0.6, external: 203.0.113.11 }    # 1:1
+      nat64:
+        enable: true
+        prefix: "64:ff9b::/96"
+        interfaces: [{ name: eth0, role: inside }, { name: vf0, role: outside }]
+        pools: [{ start: 203.0.113.30, end: 203.0.113.40 }]
+      nat66:
+        static: [{ local: "2001:db8::5", external: "2001:db8:1::5" }]
+
   ethernets:
     # af-packet：挂到内核已有网卡（共存，默认模式）
     eth0:
       mtu: 9000
-      addresses: [10.0.0.1/24, 2001:db8::1/64]
+      addresses: [10.0.0.1/24, "2001:db8::1/64"]
       routes:
         - { to: default, via: 10.0.0.254 }
       vpp: { mode: af-packet, host-if: eth0 }
 
     # dpdk 独占：VPP 接管该 VF（PCI），写入 startup.conf，需重启 VPP 生效
-    vf0: { vpp: { mode: dpdk, pci: "0000:03:02.0" } }
+    vf0: { addresses: [203.0.113.1/24], vpp: { mode: dpdk, pci: "0000:03:02.0" } }
     vf1: { vpp: { mode: dpdk, pci: "0000:03:02.1" } }
 
     # VPP 软件 loopback
@@ -47,26 +70,3 @@ network:
     br0:
       interfaces: [vx100]            # 把 vxlan 加入 bridge domain
       addresses: [10.22.0.1/24]      # 带地址 → 自动建 BVI loopback 承载 L3
-
-# ── NAT 示例（netcfg 扩展，VPP nat44/nat64/nat66）────────────────────────────
-# 放在 vpp: 段下；接口 role 引用上面定义的 VPP 接口。
-#   nat:
-#     nat44:
-#       enable: true
-#       mode: ed                      # ed(默认,完整) | ei
-#       sessions: 63000
-#       interfaces:
-#         - { name: eth0, role: inside }
-#         - { name: bond0, role: outside }   # 或 role: output 出口动态 SNAT
-#       pools:
-#         - { start: 203.0.113.10, end: 203.0.113.20 }
-#       static:
-#         - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }  # 端口转发
-#         - { local: 10.0.0.6, external: 203.0.113.11 }    # 1:1
-#     nat64:
-#       enable: true
-#       prefix: "64:ff9b::/96"
-#       interfaces: [{ name: eth0, role: inside }, { name: bond0, role: outside }]
-#       pools: [{ start: 203.0.113.30, end: 203.0.113.40 }]
-#     nat66:
-#       static: [{ local: "2001:db8::5", external: "2001:db8:1::5" }]

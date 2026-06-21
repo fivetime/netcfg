@@ -1,0 +1,96 @@
+# 以太网高级属性参考（match/set-name、DHCP overrides、地址选项、IPv6、路由、
+# 策略路由、offload、SR-IOV、WoL、InfiniBand、activation-mode、bridge 端口属性）。
+network:
+  version: 2
+
+  ethernets:
+    # match + set-name：按 MAC/driver/name(glob) 匹配既有网卡并重命名
+    lan0:
+      match:
+        macaddress: "52:54:00:11:22:33"
+      set-name: lan0
+      addresses:
+        - 10.0.0.2/24
+        - "10.0.0.3/24":          # 带 lifetime/label 的地址（map 写法）
+            lifetime: 0
+            label: lan0:1
+        - "2001:db8::2/64":
+            lifetime: forever
+      mtu: 9000
+      macaddress: "52:54:00:11:22:33"
+      routes:
+        - to: default
+          via: 10.0.0.1
+        - to: 192.168.50.0/24     # 静态路由全字段
+          via: 10.0.0.254
+          metric: 100
+          table: 100
+          scope: global
+          on-link: true
+          mtu: 1400
+      routing-policy:
+        - from: 10.0.0.0/24
+          table: 100
+          priority: 1000
+      nameservers:
+        addresses: [1.1.1.1, 2606:4700:4700::1111]
+        search: [corp.example.com]
+
+    # DHCP + overrides（请求/应用侧）
+    wan0:
+      dhcp4: true
+      dhcp6: true
+      dhcp-identifier: mac        # mac / duid
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+        route-metric: 200
+        use-domains: route
+        send-hostname: true
+        hostname: myhost
+      dhcp6-overrides:
+        use-dns: true
+
+    # IPv6 细节
+    v6if:
+      accept-ra: true
+      ra-overrides:               # 仅 networkd 后端真正生效，netcfg 仅告警保留
+        use-dns: true
+      ipv6-privacy: true          # 临时地址
+      ipv6-address-generation: stable-privacy   # eui64 / stable-privacy
+      # ipv6-address-token: "::1:2:3:4"         # 与 generation 互斥
+      ipv6-mtu: 1480
+      link-local: [ipv6]
+
+    # activation-mode：配置但不激活
+    standby0:
+      activation-mode: manual     # manual / off
+      addresses: [10.0.9.1/24]
+
+    # 网卡 offload（ethtool -K）+ WoL + InfiniBand
+    nic0:
+      addresses: [10.0.8.1/24]
+      wakeonlan: true
+      receive-checksum-offload: true
+      transmit-checksum-offload: true
+      tcp-segmentation-offload: true
+      generic-receive-offload: true
+      large-receive-offload: false
+      # infiniband-mode: connected   # 仅 IPoIB 设备
+
+    # SR-IOV PF：创建 VF + eswitch 模式（配合 `netcfg rebind`）
+    pf0:
+      virtual-function-count: 4
+      embedded-switch-mode: switchdev   # legacy / switchdev
+      delay-virtual-functions-rebind: true
+
+    # 作为 bridge 成员时的 brport 属性
+    brm0:
+      neigh-suppress: true
+      hairpin: false
+      port-mac-learning: true
+
+  bridges:
+    br0:
+      interfaces: [brm0]
+      addresses: [10.0.7.1/24]
