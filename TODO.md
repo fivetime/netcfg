@@ -275,12 +275,12 @@
 - [x] **V1a 验收**：容器端到端——apply af-packet+地址+路由 → `vppctl show int/int addr/ip fib` 断言
 
 ### 阶段 V1b — L2 + bond + 隧道
-- [ ] **V1b-1 VLAN sub-if**：vlans.{id,link} → CreateSubif（dot1q exact-match）
-- [ ] **V1b-2 bridge domain**：BridgeDomainAddDel（bd-id 自动分配或 vpp.bd-id）+ 成员 SwInterfaceSetL2Bridge
-- [ ] **V1b-3 bridge BVI**：带 addresses 的 bridge 自动建 BVI loopback 承载 L3
-- [ ] **V1b-4 bond**：BondCreate2 + BondAddMember；parameters.mode 映射（802.3ad→lacp 等）
-- [ ] **V1b-5 vxlan**：tunnels:mode:vxlan → VxlanAddDelTunnel；可挂入 bridge domain
-- [ ] **V1b 验收**：容器断言 vlan/bridge/bond/vxlan
+- [x] **V1b-1 VLAN sub-if**：vlans.{id,link} → CreateSubif（dot1q exact-match）
+- [x] **V1b-2 bridge domain**：BridgeDomainAddDel（bd-id 自动分配或 vpp.bd-id）+ 成员 SwInterfaceSetL2Bridge
+- [x] **V1b-3 bridge BVI**：带 addresses 的 bridge 自动建 BVI loopback 承载 L3
+- [x] **V1b-4 bond**：BondCreate2 + BondAddMember；parameters.mode 映射（802.3ad→lacp 等）
+- [x] **V1b-5 vxlan**：tunnels:mode:vxlan → VxlanAddDelTunnel；可挂入 bridge domain
+- [x] **V1b 验收**：容器断言 vlan/bridge/bond/vxlan
 
 ### 阶段 V1c — 独占模式 + startup.conf + SR-IOV
 - [ ] **V1c-1 dpdk 模式**：mode:dpdk（pci）→ 写 startup.conf dpdk{dev}；与运行态接口配置衔接

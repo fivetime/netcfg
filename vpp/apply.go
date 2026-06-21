@@ -11,6 +11,7 @@ package vpp
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"strings"
@@ -18,29 +19,54 @@ import (
 	"github.com/netcfg/netcfg/config"
 
 	af_packet "go.fd.io/govpp/binapi/af_packet"
+	"go.fd.io/govpp/binapi/bond"
 	"go.fd.io/govpp/binapi/ethernet_types"
 	"go.fd.io/govpp/binapi/fib_types"
 	interfaces "go.fd.io/govpp/binapi/interface"
 	"go.fd.io/govpp/binapi/interface_types"
 	"go.fd.io/govpp/binapi/ip"
 	"go.fd.io/govpp/binapi/ip_types"
+	"go.fd.io/govpp/binapi/l2"
+	"go.fd.io/govpp/binapi/vxlan"
 )
 
 // Applier 基于 GoVPP RPC service client 下发配置。
 type Applier struct {
-	intf interfaces.RPCService
-	afp  af_packet.RPCService
-	ipc  ip.RPCService
+	intf  interfaces.RPCService
+	afp   af_packet.RPCService
+	ipc   ip.RPCService
+	l2c   l2.RPCService
+	bondc bond.RPCService
+	vxc   vxlan.RPCService
+
+	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
+	idx map[string]interface_types.InterfaceIndex
 }
 
 // NewApplier 用已连接的 Client 构造 applier。
 func NewApplier(c *Client) *Applier {
 	conn := c.Conn()
 	return &Applier{
-		intf: interfaces.NewServiceClient(conn),
-		afp:  af_packet.NewServiceClient(conn),
-		ipc:  ip.NewServiceClient(conn),
+		intf:  interfaces.NewServiceClient(conn),
+		afp:   af_packet.NewServiceClient(conn),
+		ipc:   ip.NewServiceClient(conn),
+		l2c:   l2.NewServiceClient(conn),
+		bondc: bond.NewServiceClient(conn),
+		vxc:   vxlan.NewServiceClient(conn),
+		idx:   map[string]interface_types.InterfaceIndex{},
 	}
+}
+
+// resolve 按名查 sw_if_index：先查本次缓存，再按 tag 查 VPP。
+func (a *Applier) resolve(ctx context.Context, name string) (interface_types.InterfaceIndex, bool, error) {
+	if i, ok := a.idx[name]; ok {
+		return i, true, nil
+	}
+	i, ok, err := a.findByTag(ctx, name)
+	if ok {
+		a.idx[name] = i
+	}
+	return i, ok, err
 }
 
 // findByTag 按 tag 查找已存在接口的 sw_if_index（幂等用）。
@@ -73,7 +99,7 @@ func (a *Applier) tagInterface(ctx context.Context, idx interface_types.Interfac
 
 // ensureAfPacket 创建（或复用）挂到内核网卡 hostIf 的 af-packet 接口。
 func (a *Applier) ensureAfPacket(ctx context.Context, name, hostIf string) (interface_types.InterfaceIndex, error) {
-	if idx, ok, err := a.findByTag(ctx, name); err != nil {
+	if idx, ok, err := a.resolve(ctx, name); err != nil {
 		return 0, err
 	} else if ok {
 		return idx, nil
@@ -91,12 +117,13 @@ func (a *Applier) ensureAfPacket(ctx context.Context, name, hostIf string) (inte
 	if err := a.tagInterface(ctx, rep.SwIfIndex, name); err != nil {
 		slog.Warn("failed to tag vpp interface", "device", name, "error", err)
 	}
+	a.idx[name] = rep.SwIfIndex
 	return rep.SwIfIndex, nil
 }
 
 // ensureLoopback 创建（或复用）loopback 接口。
 func (a *Applier) ensureLoopback(ctx context.Context, name string) (interface_types.InterfaceIndex, error) {
-	if idx, ok, err := a.findByTag(ctx, name); err != nil {
+	if idx, ok, err := a.resolve(ctx, name); err != nil {
 		return 0, err
 	} else if ok {
 		return idx, nil
@@ -108,6 +135,7 @@ func (a *Applier) ensureLoopback(ctx context.Context, name string) (interface_ty
 	if err := a.tagInterface(ctx, rep.SwIfIndex, name); err != nil {
 		slog.Warn("failed to tag vpp interface", "device", name, "error", err)
 	}
+	a.idx[name] = rep.SwIfIndex
 	return rep.SwIfIndex, nil
 }
 
@@ -278,4 +306,222 @@ func (a *Applier) ApplyEthernet(ctx context.Context, name string, e *config.Ethe
 		slog.Warn("nameservers not applicable to VPP device; handle on the host", "device", name)
 	}
 	return nil
+}
+
+// configureL3 应用接口的 MTU/MAC/up/地址/路由（bond/vlan 共用；ethernet 内联了相同逻辑）。
+func (a *Applier) configureL3(ctx context.Context, idx interface_types.InterfaceIndex, name string,
+	mtu int, mac string, up bool, addrs []config.Address, routes []*config.Route) {
+	if mtu > 0 {
+		if err := a.setMTU(ctx, idx, mtu); err != nil {
+			slog.Warn("vpp set mtu failed", "device", name, "error", err)
+		}
+	}
+	if mac != "" {
+		if err := a.setMAC(ctx, idx, mac); err != nil {
+			slog.Warn("vpp set mac failed", "device", name, "error", err)
+		}
+	}
+	if err := a.setUp(ctx, idx, up); err != nil {
+		slog.Warn("vpp set link state failed", "device", name, "error", err)
+	}
+	for _, addr := range addrs {
+		if err := a.addAddress(ctx, idx, addr.CIDR); err != nil {
+			slog.Warn("vpp add address failed", "device", name, "address", addr.CIDR, "error", err)
+		}
+	}
+	for _, r := range routes {
+		if r == nil || r.To == "" || r.Via == "" {
+			continue
+		}
+		if err := a.addRoute(ctx, r.To, r.Via, idx, uint32(r.Table)); err != nil {
+			slog.Warn("vpp add route failed", "device", name, "to", r.To, "error", err)
+		}
+	}
+}
+
+// bondModeFromConfig 把 netplan bond mode 映射到 VPP bond mode。
+func bondModeFromConfig(mode string) bond.BondMode {
+	switch strings.ToLower(mode) {
+	case "802.3ad", "lacp":
+		return bond.BOND_API_MODE_LACP
+	case "active-backup":
+		return bond.BOND_API_MODE_ACTIVE_BACKUP
+	case "balance-xor":
+		return bond.BOND_API_MODE_XOR
+	case "broadcast":
+		return bond.BOND_API_MODE_BROADCAST
+	default: // balance-rr / 未指定
+		return bond.BOND_API_MODE_ROUND_ROBIN
+	}
+}
+
+// ApplyBond 创建（或复用）VPP bond 并加入成员。
+func (a *Applier) ApplyBond(ctx context.Context, name string, b *config.Bond) error {
+	idx, ok, err := a.resolve(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		mode := ""
+		if b.Parameters != nil {
+			mode = b.Parameters.Mode
+		}
+		rep, err := a.bondc.BondCreate2(ctx, &bond.BondCreate2{
+			Mode: bondModeFromConfig(mode),
+			ID:   ^uint32(0), // 自动分配
+		})
+		if err != nil {
+			return fmt.Errorf("bond create %s: %w", name, err)
+		}
+		idx = rep.SwIfIndex
+		if err := a.tagInterface(ctx, idx, name); err != nil {
+			slog.Warn("failed to tag vpp bond", "device", name, "error", err)
+		}
+		a.idx[name] = idx
+	}
+	slog.Info("vpp bond ready", "device", name, "sw_if_index", idx)
+
+	// 加入成员（成员须为已存在的 VPP 接口）
+	for _, m := range b.Interfaces {
+		mIdx, mok, err := a.resolve(ctx, m)
+		if err != nil || !mok {
+			slog.Warn("vpp bond member not found in VPP; skipping", "bond", name, "member", m)
+			continue
+		}
+		if _, err := a.bondc.BondAddMember(ctx, &bond.BondAddMember{SwIfIndex: mIdx, BondSwIfIndex: idx}); err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				continue // 幂等：成员已在 bond 中
+			}
+			slog.Warn("vpp bond add member failed", "bond", name, "member", m, "error", err)
+		}
+	}
+
+	a.configureL3(ctx, idx, name, b.MTU, b.MacAddress, true, b.Addresses, b.Routes)
+	return nil
+}
+
+// ApplyVlan 在父 VPP 接口上创建（或复用）dot1q sub-interface。
+func (a *Applier) ApplyVlan(ctx context.Context, name string, vl *config.Vlan) error {
+	idx, ok, err := a.resolve(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		parent, pok, err := a.resolve(ctx, vl.Link)
+		if err != nil {
+			return err
+		}
+		if !pok {
+			return fmt.Errorf("vlan %s: parent %q not found in VPP", name, vl.Link)
+		}
+		rep, err := a.intf.CreateVlanSubif(ctx, &interfaces.CreateVlanSubif{
+			SwIfIndex: parent, VlanID: uint32(vl.ID),
+		})
+		if err != nil {
+			return fmt.Errorf("create vlan subif %s (parent %s vlan %d): %w", name, vl.Link, vl.ID, err)
+		}
+		idx = rep.SwIfIndex
+		if err := a.tagInterface(ctx, idx, name); err != nil {
+			slog.Warn("failed to tag vpp vlan", "device", name, "error", err)
+		}
+		a.idx[name] = idx
+	}
+	slog.Info("vpp vlan ready", "device", name, "vlan", vl.ID, "sw_if_index", idx)
+	a.configureL3(ctx, idx, name, vl.MTU, vl.MacAddress, true, vl.Addresses, vl.Routes)
+	return nil
+}
+
+// ApplyVxlan 创建（或复用）VXLAN 隧道（tunnels:mode:vxlan 经 Normalize 转入 Vxlans）。
+func (a *Applier) ApplyVxlan(ctx context.Context, name string, vx *config.Vxlan) error {
+	idx, ok, err := a.resolve(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		src, err := ip_types.ParseAddress(vx.Local)
+		if err != nil {
+			return fmt.Errorf("vxlan %s: parse local %q: %w", name, vx.Local, err)
+		}
+		dst, err := ip_types.ParseAddress(vx.Remote)
+		if err != nil {
+			return fmt.Errorf("vxlan %s: parse remote %q: %w", name, vx.Remote, err)
+		}
+		dstPort := uint16(4789)
+		if vx.DestPort > 0 {
+			dstPort = uint16(vx.DestPort)
+		} else if vx.Port > 0 {
+			dstPort = uint16(vx.Port)
+		}
+		rep, err := a.vxc.VxlanAddDelTunnelV3(ctx, &vxlan.VxlanAddDelTunnelV3{
+			IsAdd:      true,
+			Instance:   ^uint32(0),
+			SrcAddress: src,
+			DstAddress: dst,
+			DstPort:    dstPort,
+			Vni:        uint32(vx.ID),
+		})
+		if err != nil {
+			return fmt.Errorf("vxlan create %s (vni %d): %w", name, vx.ID, err)
+		}
+		idx = rep.SwIfIndex
+		if err := a.tagInterface(ctx, idx, name); err != nil {
+			slog.Warn("failed to tag vpp vxlan", "device", name, "error", err)
+		}
+		a.idx[name] = idx
+	}
+	slog.Info("vpp vxlan ready", "device", name, "vni", vx.ID, "sw_if_index", idx)
+	if err := a.setUp(ctx, idx, true); err != nil {
+		slog.Warn("vpp set vxlan up failed", "device", name, "error", err)
+	}
+	return nil
+}
+
+// ApplyBridge 创建（或复用）bridge domain、加入成员；带地址时建 BVI loopback 承载 L3。
+func (a *Applier) ApplyBridge(ctx context.Context, name string, b *config.Bridge) error {
+	bdID := autoBdID(name)
+	if b.VPP != nil && b.VPP.BdID > 0 {
+		bdID = uint32(b.VPP.BdID)
+	}
+	if _, err := a.l2c.BridgeDomainAddDel(ctx, &l2.BridgeDomainAddDel{
+		BdID: bdID, Flood: true, UuFlood: true, Forward: true, Learn: true, IsAdd: true,
+	}); err != nil && !strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("bridge domain %s (bd %d): %w", name, bdID, err)
+	}
+	slog.Info("vpp bridge domain ready", "device", name, "bd_id", bdID)
+
+	for _, m := range b.Interfaces {
+		mIdx, mok, err := a.resolve(ctx, m)
+		if err != nil || !mok {
+			slog.Warn("vpp bridge member not found in VPP; skipping", "bridge", name, "member", m)
+			continue
+		}
+		if _, err := a.l2c.SwInterfaceSetL2Bridge(ctx, &l2.SwInterfaceSetL2Bridge{
+			RxSwIfIndex: mIdx, BdID: bdID, PortType: l2.L2_API_PORT_TYPE_NORMAL, Enable: true,
+		}); err != nil {
+			slog.Warn("vpp bridge add member failed", "bridge", name, "member", m, "error", err)
+		}
+	}
+
+	// 带地址 → 建 BVI loopback 承载 L3
+	if len(b.Addresses) > 0 {
+		bviName := name + "-bvi"
+		bvi, err := a.ensureLoopback(ctx, bviName)
+		if err != nil {
+			return fmt.Errorf("bridge %s BVI: %w", name, err)
+		}
+		if _, err := a.l2c.SwInterfaceSetL2Bridge(ctx, &l2.SwInterfaceSetL2Bridge{
+			RxSwIfIndex: bvi, BdID: bdID, PortType: l2.L2_API_PORT_TYPE_BVI, Enable: true,
+		}); err != nil {
+			slog.Warn("vpp set BVI failed", "bridge", name, "error", err)
+		}
+		a.configureL3(ctx, bvi, bviName, b.MTU, b.MacAddress, true, b.Addresses, b.Routes)
+	}
+	return nil
+}
+
+// autoBdID 从 bridge 名派生确定性 bridge-domain id（1..16M），跨 apply 稳定。
+func autoBdID(name string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return h.Sum32()%16_000_000 + 1
 }

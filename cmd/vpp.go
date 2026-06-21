@@ -23,11 +23,12 @@ type vppSet struct {
 	bridges   map[string]*config.Bridge
 	bonds     map[string]*config.Bond
 	vlans     map[string]*config.Vlan
-	tunnels   map[string]*config.Tunnel
+	vxlans    map[string]*config.Vxlan  // tunnels:mode:vxlan 经 Normalize 转入
+	tunnels   map[string]*config.Tunnel // 非 vxlan 隧道（gre/ipip…，V1b 暂延后）
 }
 
 func (v *vppSet) empty() bool {
-	return len(v.ethernets)+len(v.bridges)+len(v.bonds)+len(v.vlans)+len(v.tunnels) == 0
+	return len(v.ethernets)+len(v.bridges)+len(v.bonds)+len(v.vlans)+len(v.vxlans)+len(v.tunnels) == 0
 }
 
 func (v *vppSet) names() []string {
@@ -59,6 +60,7 @@ func splitVPPDevices(ns *config.Namespace, globalRenderer string) (*config.Names
 		bridges:   map[string]*config.Bridge{},
 		bonds:     map[string]*config.Bond{},
 		vlans:     map[string]*config.Vlan{},
+		vxlans:    map[string]*config.Vxlan{},
 		tunnels:   map[string]*config.Tunnel{},
 	}
 	kernel := *ns // 浅拷贝；下面替换被分流的几个 map 为过滤后的新 map
@@ -113,6 +115,18 @@ func splitVPPDevices(ns *config.Namespace, globalRenderer string) (*config.Names
 	}
 	kernel.Tunnels = kTun
 
+	// vxlan（tunnels:mode:vxlan 经 Normalize 转入 Vxlans；内部结构无 Renderer，
+	// 归属看 vpp 块或全局 renderer）
+	kVx := map[string]*config.Vxlan{}
+	for name, vx := range ns.Vxlans {
+		if vx != nil && config.VPPManaged(vx.VPP, "", globalRenderer) {
+			v.vxlans[name] = vx
+		} else {
+			kVx[name] = vx
+		}
+	}
+	kernel.Vxlans = kVx
+
 	return &kernel, v
 }
 
@@ -132,35 +146,35 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 	a := vpp.NewApplier(c)
 	ctx := context.Background()
 
-	// ethernet 设备（含 af-packet/loopback）—— V1a 已实现
+	// 依赖顺序：ethernet → bond（成员=ethernet）→ vlan（父=ethernet/bond）
+	// → vxlan → bridge（成员=任意，须最后）。
 	for _, name := range sortedKeys(v.ethernets) {
 		if err := a.ApplyEthernet(ctx, name, v.ethernets[name]); err != nil {
 			slog.Error("vpp apply ethernet failed", "device", name, "error", err)
 		}
 	}
-
-	// L2/隧道设备 —— V1b 实现
-	for _, name := range deferredVPPNames(v) {
-		slog.Info("VPP device deferred to V1b (bridge/bond/vlan/vxlan)", "device", name)
+	for _, name := range sortedKeys(v.bonds) {
+		if err := a.ApplyBond(ctx, name, v.bonds[name]); err != nil {
+			slog.Error("vpp apply bond failed", "device", name, "error", err)
+		}
+	}
+	for _, name := range sortedKeys(v.vlans) {
+		if err := a.ApplyVlan(ctx, name, v.vlans[name]); err != nil {
+			slog.Error("vpp apply vlan failed", "device", name, "error", err)
+		}
+	}
+	for _, name := range sortedKeys(v.vxlans) {
+		if err := a.ApplyVxlan(ctx, name, v.vxlans[name]); err != nil {
+			slog.Error("vpp apply vxlan failed", "device", name, "error", err)
+		}
+	}
+	for _, name := range sortedKeys(v.tunnels) {
+		slog.Warn("vpp non-vxlan tunnel not yet implemented (deferred); skipping", "device", name, "mode", v.tunnels[name].Mode)
+	}
+	for _, name := range sortedKeys(v.bridges) {
+		if err := a.ApplyBridge(ctx, name, v.bridges[name]); err != nil {
+			slog.Error("vpp apply bridge failed", "device", name, "error", err)
+		}
 	}
 	return nil
-}
-
-// deferredVPPNames 返回尚未实现的 VPP 设备（bridge/bond/vlan/tunnel）名。
-func deferredVPPNames(v *vppSet) []string {
-	var ns []string
-	for n := range v.bridges {
-		ns = append(ns, n)
-	}
-	for n := range v.bonds {
-		ns = append(ns, n)
-	}
-	for n := range v.vlans {
-		ns = append(ns, n)
-	}
-	for n := range v.tunnels {
-		ns = append(ns, n)
-	}
-	sort.Strings(ns)
-	return ns
 }

@@ -732,6 +732,7 @@ func (t *Tunnel) toVxlan() *Vxlan {
 		Routes:         t.Routes,
 		FDB:            t.FDB,
 		Neighbors:      t.Neighbors,
+		VPP:            t.VPP, // 带入 VPP 后端归属（tunnels:mode:vxlan 的 vpp 块）
 	}
 }
 
