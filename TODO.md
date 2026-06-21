@@ -266,13 +266,13 @@
 - [x] **V0 验收**：`GOOS=linux go build/vet` 通过；`netcfg apply` 对纯 VPP 配置能连上容器内 VPP 并通过兼容性自检（不下发流量）
 
 ### 阶段 V1a — af-packet L3 端到端
-- [ ] **V1a-1 接口创建**：af-packet（AfPacketCreateV3，host-if 默认设备名）+ loopback（CreateLoopback）；幂等（已存在则复用 sw_if_index）
-- [ ] **V1a-2 链路状态**：up（SwInterfaceSetFlags ADMIN_UP）；activation-mode off/manual（不 up / 置 down）
-- [ ] **V1a-3 MTU/MAC**：SwInterfaceSetMtu、SwInterfaceSetMacAddress
-- [ ] **V1a-4 地址**：SwInterfaceAddDelAddress（v4/v6；幂等，diff 增删）
-- [ ] **V1a-5 路由/网关**：IPRouteAddDel（FibPath：via/table/metric）+ 默认路由（to:default / gateway4/6）
-- [ ] **V1a-6 忽略项告警**：VPP 设备上 dhcp/nameservers/wakeonlan/accept-ra 等显式告警（不静默）
-- [ ] **V1a 验收**：容器端到端——apply af-packet+地址+路由 → `vppctl show int/int addr/ip fib` 断言
+- [x] **V1a-1 接口创建**：af-packet（AfPacketCreateV3，host-if 默认设备名）+ loopback（CreateLoopback）；幂等（已存在则复用 sw_if_index）
+- [x] **V1a-2 链路状态**：up（SwInterfaceSetFlags ADMIN_UP）；activation-mode off/manual（不 up / 置 down）
+- [x] **V1a-3 MTU/MAC**：SwInterfaceSetMtu、SwInterfaceSetMacAddress
+- [x] **V1a-4 地址**：SwInterfaceAddDelAddress（v4/v6；幂等，diff 增删）
+- [x] **V1a-5 路由/网关**：IPRouteAddDel（FibPath：via/table/metric）+ 默认路由（to:default / gateway4/6）
+- [x] **V1a-6 忽略项告警**：VPP 设备上 dhcp/nameservers/wakeonlan/accept-ra 等显式告警（不静默）
+- [x] **V1a 验收**：容器端到端——apply af-packet+地址+路由 → `vppctl show int/int addr/ip fib` 断言
 
 ### 阶段 V1b — L2 + bond + 隧道
 - [ ] **V1b-1 VLAN sub-if**：vlans.{id,link} → CreateSubif（dot1q exact-match）
