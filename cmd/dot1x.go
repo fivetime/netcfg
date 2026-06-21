@@ -55,6 +55,14 @@ func setup8021x(name string, auth *config.Auth) {
 // driver: 有线用 "wired"，WiFi 用 "nl80211"。检测不到 wpa_supplicant 时仅告警
 // （配置已写，装上后重新 apply 即可）。先停掉该接口已有的实例以保证幂等。
 func runSupplicant(iface, driver, confPath string) {
+	// 监督模式：设置 NETCFG_SUPPLICANT_EXTERNAL 后，netcfg 只写 conf，不自己拉起
+	// wpa_supplicant——把进程的启动/监督交给 init 服务（见 init/ 模板）。
+	if os.Getenv("NETCFG_SUPPLICANT_EXTERNAL") != "" {
+		slog.Info("NETCFG_SUPPLICANT_EXTERNAL set; wrote conf only, supplicant lifecycle delegated to init",
+			"interface", iface, "conf", confPath)
+		return
+	}
+
 	stopSupplicant(iface)
 
 	bin, err := exec.LookPath(wpaSupBinary)

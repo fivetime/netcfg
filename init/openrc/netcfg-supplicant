@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# netcfg supplicant supervision — OPTIONAL template (OpenRC; Alpine/Gentoo).
+#
+# Use only if you want supervised lifecycle (start on boot + restart on crash).
+# Setup (one service per interface):
+#   cp init/openrc/netcfg-supplicant /etc/init.d/netcfg-supplicant-eth0
+#   edit IFACE/DRIVER below
+#   rc-update add netcfg-supplicant-eth0 default
+#   rc-service netcfg-supplicant-eth0 start
+# Also set NETCFG_SUPPLICANT_EXTERNAL=1 for netcfg so apply does not also spawn.
+#
+# DRIVER: "wired" for 802.1X, "nl80211" for WiFi.
+
+IFACE="${IFACE:-eth0}"
+DRIVER="${DRIVER:-wired}"
+
+name="netcfg supplicant (${IFACE})"
+command="/sbin/wpa_supplicant"
+# foreground (no -B); OpenRC supervise-daemon supervises and restarts
+command_args="-i ${IFACE} -D ${DRIVER} -c /etc/netcfg/wpa-${IFACE}.conf"
+supervisor="supervise-daemon"
+respawn_delay=5
+
+depend() {
+	need net
+	after netcfg
+}
