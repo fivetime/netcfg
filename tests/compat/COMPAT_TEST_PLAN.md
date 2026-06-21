@@ -73,8 +73,8 @@
 | D9 | wpa_enterprise.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
 | D10 | modem.yaml | 告警 modems | ✅ |
 | D11 | openvswitch.yaml | 告警 openvswitch | ✅ |
-| D12 | sriov.yaml | SR-IOV 字段忽略/告警，应用受支持部分 | ✅ |
-| D13 | sriov_vlan.yaml | 同上 | ✅ |
+| D12 | sriov.yaml | VF count/eswitch 经 sysfs/devlink (P2-3) | ✅ |
+| D13 | sriov_vlan.yaml | 同上（硬件 VLAN 过滤 renderer:sriov 未实现） | ✅ |
 
 ---
 

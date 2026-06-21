@@ -165,7 +165,12 @@
 - [ ] `modems.*`：apn, auto-config, device-id, network-id, pin, sim-id, sim-operator-id, username, password, mtu, number（netplan-yaml.md:1067-1152）
 - 需集成 ModemManager
 
-### P2-3 SR-IOV 支持 · **L**
+### P2-3 SR-IOV 支持 · **L** · 🟡 核心完成（VF count + eswitch）
+- config.Ethernet 新增 `virtual-function-count` / `embedded-switch-mode` / `delay-virtual-functions-rebind` / `link`（VF→PF）
+- `cmd/sriov.go` `applySRIOV`：VF 数量经 sysfs `/sys/class/net/<pf>/device/sriov_numvfs`（改前先归零）；eswitch 模式经 `devlink dev eswitch set pci/<addr> mode <mode>`（PCI 地址从 sysfs symlink 取，best-effort 需 devlink）
+- setupEthernets 加 SR-IOV 预处理 pass（先建 VF 再配置设备）
+- 验证：非 SR-IOV 设备上 numvfs 写入/eswitch 均 best-effort 告警跳过、rc=0 不崩溃（实际 SR-IOV 需硬件验证）
+- 已知限制/延后：① VF netdev 异步出现，其上配置可能需 VF 就绪后/再次 apply（SR-IOV 固有，netplan 用 rebind 解决→P3-5）；② 硬件 VLAN 过滤（vlan 上 `renderer: sriov`，sriov_vlan.yaml 的 vlan2_hw，即 `ip link set <pf> vf <n> vlan <id>`）未实现；③ delay-virtual-functions-rebind 仅提示，绑定 P3-5 rebind 命令
 - [ ] `virtual-function-count, embedded-switch-mode, delay-virtual-functions-rebind, link`（netplan-yaml.md:1014-1056）
 - [ ] 对应 `netcfg rebind` 命令（见 P3-5）
 - 需操作 sysfs

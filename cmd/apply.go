@@ -607,6 +607,18 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 	// 按名称排序确保顺序一致
 	names := sortedKeys(devices)
 
+	// SR-IOV 预处理：先在 PF 上创建 VF / 设 eswitch，使 VF netdev 在后续配置前尽量就绪
+	for _, key := range names {
+		cfg := devices[key]
+		if cfg.VirtualFunctionCount > 0 || cfg.EmbeddedSwitchMode != "" || cfg.DelayVFRebind != nil {
+			if mgr.LinkExists(key) {
+				applySRIOV(key, cfg)
+			} else {
+				slog.Warn("SR-IOV PF not present; skipping", "device", key)
+			}
+		}
+	}
+
 	for _, key := range names {
 		cfg := devices[key]
 		slog.Debug("setting up ethernet", "id", key, "netns", nsName)

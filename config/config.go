@@ -152,6 +152,12 @@ type Ethernet struct {
 	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`
 	Auth           *Auth            `yaml:"auth,omitempty"` // 802.1X/EAP（生成 wpa_supplicant 配置，直接 spawn）
 
+	// SR-IOV（physical 属性）
+	Link                 string `yaml:"link,omitempty"`                   // VF 所属 PF（VF ethernet 上）
+	VirtualFunctionCount int    `yaml:"virtual-function-count,omitempty"` // 在 PF 上创建的 VF 数
+	EmbeddedSwitchMode   string `yaml:"embedded-switch-mode,omitempty"`   // legacy/switchdev
+	DelayVFRebind        *bool  `yaml:"delay-virtual-functions-rebind,omitempty"`
+
 	// 网卡 offload（physical 属性，*bool nil=不改，经 ethtool -K 设置）
 	ReceiveChecksumOffload     *bool `yaml:"receive-checksum-offload,omitempty"`
 	TransmitChecksumOffload    *bool `yaml:"transmit-checksum-offload,omitempty"`
