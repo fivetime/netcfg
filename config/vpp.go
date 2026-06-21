@@ -192,5 +192,52 @@ func ValidateVPP(cfg *Config) error {
 			hostIfOwner[d.vpp.HostIf] = d.name
 		}
 	}
+
+	if n.VPP != nil && n.VPP.NAT != nil {
+		if err := validateNat(n.VPP.NAT); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateNat 校验 NAT 配置（mode、接口 role、static proto）。
+func validateNat(nat *VPPNat) error {
+	roleOK := func(r string) bool {
+		switch strings.ToLower(r) {
+		case "inside", "outside", "output":
+			return true
+		}
+		return false
+	}
+	if n := nat.Nat44; n != nil {
+		if n.Mode != "" && !strings.EqualFold(n.Mode, "ed") && !strings.EqualFold(n.Mode, "ei") {
+			return fmt.Errorf("vpp.nat.nat44: invalid mode %q (want ed/ei)", n.Mode)
+		}
+		for _, i := range n.Interfaces {
+			if !roleOK(i.Role) {
+				return fmt.Errorf("vpp.nat.nat44 interface %q: invalid role %q (want inside/outside/output)", i.Name, i.Role)
+			}
+		}
+		for _, s := range n.Static {
+			if s.Proto != "" {
+				switch strings.ToLower(s.Proto) {
+				case "tcp", "udp", "icmp":
+				default:
+					return fmt.Errorf("vpp.nat.nat44 static %s: invalid proto %q (want tcp/udp/icmp)", s.Local, s.Proto)
+				}
+			}
+			if s.External == "" && s.ExternalInterface == "" {
+				return fmt.Errorf("vpp.nat.nat44 static %s: need 'external' or 'external-interface'", s.Local)
+			}
+		}
+	}
+	if n := nat.Nat64; n != nil {
+		for _, i := range n.Interfaces {
+			if !roleOK(i.Role) {
+				return fmt.Errorf("vpp.nat.nat64 interface %q: invalid role %q", i.Name, i.Role)
+			}
+		}
+	}
 	return nil
 }

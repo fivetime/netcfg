@@ -197,6 +197,72 @@ type VPPGlobal struct {
 	APISocket string      `yaml:"api-socket,omitempty"` // 默认 /run/vpp/api.sock
 	Reconnect *bool       `yaml:"reconnect,omitempty"`  // 默认 true
 	Startup   *VPPStartup `yaml:"startup,omitempty"`    // 生成 /etc/vpp/startup.conf（V1c）
+	NAT       *VPPNat     `yaml:"nat,omitempty"`        // NAT（netcfg 扩展）
+}
+
+// VPPNat VPP NAT 配置（nat44/nat64/nat66）。
+type VPPNat struct {
+	Nat44 *Nat44 `yaml:"nat44,omitempty"`
+	Nat64 *Nat64 `yaml:"nat64,omitempty"`
+	Nat66 *Nat66 `yaml:"nat66,omitempty"`
+}
+
+// Nat44 NAT44 配置（endpoint-dependent 为默认/完整）。
+type Nat44 struct {
+	Enable     *bool           `yaml:"enable,omitempty"`   // nil 或 true=启用
+	Mode       string          `yaml:"mode,omitempty"`     // ed(默认)/ei
+	Sessions   int             `yaml:"sessions,omitempty"` // 会话数（默认 63000）
+	InsideVRF  int             `yaml:"inside-vrf,omitempty"`
+	OutsideVRF int             `yaml:"outside-vrf,omitempty"`
+	Interfaces []*NatInterface `yaml:"interfaces,omitempty"`
+	Pools      []*NatPool      `yaml:"pools,omitempty"`  // SNAT 地址池
+	Static     []*NatStatic    `yaml:"static,omitempty"` // 静态映射/端口转发
+}
+
+// NatInterface NAT 接口角色。
+type NatInterface struct {
+	Name string `yaml:"name"`
+	Role string `yaml:"role"` // inside/outside/output（output=出口动态 SNAT）
+}
+
+// NatPool SNAT 地址池（范围；end 空=单地址）。
+type NatPool struct {
+	Start    string `yaml:"start"`
+	End      string `yaml:"end,omitempty"`
+	TwiceNat *bool  `yaml:"twice-nat,omitempty"`
+	VRF      int    `yaml:"vrf,omitempty"`
+}
+
+// NatStatic NAT44 静态映射：proto 空=1:1(addr-only)；带 proto+ports=端口转发(DNAT)。
+type NatStatic struct {
+	Proto             string `yaml:"proto,omitempty"` // tcp/udp/icmp
+	Local             string `yaml:"local"`
+	LocalPort         int    `yaml:"local-port,omitempty"`
+	External          string `yaml:"external,omitempty"`           // 外部 IP（与 external-interface 二选一）
+	ExternalInterface string `yaml:"external-interface,omitempty"` // 用该接口地址作外部
+	ExternalPort      int    `yaml:"external-port,omitempty"`
+	TwiceNat          *bool  `yaml:"twice-nat,omitempty"`
+	VRF               int    `yaml:"vrf,omitempty"`
+}
+
+// Nat64 NAT64（IPv6→IPv4）。
+type Nat64 struct {
+	Enable     *bool           `yaml:"enable,omitempty"`
+	Prefix     string          `yaml:"prefix,omitempty"` // 如 64:ff9b::/96
+	Interfaces []*NatInterface `yaml:"interfaces,omitempty"`
+	Pools      []*NatPool      `yaml:"pools,omitempty"`
+}
+
+// Nat66 NAT66（IPv6→IPv6 静态）。
+type Nat66 struct {
+	Static []*Nat66Static `yaml:"static,omitempty"`
+}
+
+// Nat66Static NAT66 1:1 静态映射。
+type Nat66Static struct {
+	Local    string `yaml:"local"`
+	External string `yaml:"external"`
+	VRF      int    `yaml:"vrf,omitempty"`
 }
 
 // VPPStartup 生成 startup.conf 的开机持久参数（改动需 VPP 重启）。

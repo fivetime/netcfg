@@ -81,7 +81,7 @@ func Apply(cfg *config.Config) error {
 	if cfg.HasDefaultNamespaceConfig() {
 		slog.Info("configuring default namespace")
 		kernelNS, vppDevs := splitVPPDevices(cfg.Network.ToNamespace(), cfg.Network.Renderer)
-		if !vppDevs.empty() {
+		if !vppDevs.empty() || cfg.Network.VPP != nil {
 			if err := setupVPP(cfg.Network.VPP, vppDevs); err != nil {
 				return fmt.Errorf("failed to configure VPP devices: %w", err)
 			}

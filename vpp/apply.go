@@ -17,6 +17,7 @@ import (
 
 	"github.com/netcfg/netcfg/config"
 
+	govppapi "go.fd.io/govpp/api"
 	af_packet "go.fd.io/govpp/binapi/af_packet"
 	"go.fd.io/govpp/binapi/avf"
 	"go.fd.io/govpp/binapi/bond"
@@ -39,6 +40,7 @@ type Applier struct {
 	bondc bond.RPCService
 	vxc   vxlan.RPCService
 	avfc  avf.RPCService
+	conn  govppapi.Connection // 供 NAT 等子模块按需创建 service client
 
 	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
 	idx map[string]interface_types.InterfaceIndex
@@ -48,6 +50,7 @@ type Applier struct {
 func NewApplier(c *Client) *Applier {
 	conn := c.Conn()
 	return &Applier{
+		conn:  conn,
 		intf:  interfaces.NewServiceClient(conn),
 		afp:   af_packet.NewServiceClient(conn),
 		ipc:   ip.NewServiceClient(conn),

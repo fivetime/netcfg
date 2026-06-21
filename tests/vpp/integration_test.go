@@ -210,3 +210,42 @@ network:
 `)
 	mustNotContain(t, vppctl(t, "show", "interface", "addr"), "10.88.0.1/32", "loopback after reap (orphan removed)")
 }
+
+func TestNat44(t *testing.T) {
+	apply(t, `
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    nat:
+      nat44:
+        enable: true
+        interfaces: [{ name: lan, role: inside }, { name: wan, role: outside }]
+        pools: [{ start: 203.0.113.10 }]
+        static: [{ proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }]
+  ethernets:
+    lan: { addresses: [10.0.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+    wan: { addresses: [203.0.113.1/24], vpp: { mode: af-packet, host-if: veth2 } }
+`)
+	ifs := vppctl(t, "show", "nat44", "interfaces")
+	mustContain(t, ifs, "in", "nat44 inside interface")
+	mustContain(t, ifs, "out", "nat44 outside interface")
+	mustContain(t, vppctl(t, "show", "nat44", "addresses"), "203.0.113.10", "nat44 pool address")
+	mustContain(t, vppctl(t, "show", "nat44", "static", "mappings"), "203.0.113.10:8080", "nat44 port-forward external")
+	// 再 apply 应幂等（无 error）
+	apply(t, `
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    nat:
+      nat44:
+        enable: true
+        interfaces: [{ name: lan, role: inside }, { name: wan, role: outside }]
+        pools: [{ start: 203.0.113.10 }]
+        static: [{ proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }]
+  ethernets:
+    lan: { addresses: [10.0.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+    wan: { addresses: [203.0.113.1/24], vpp: { mode: af-packet, host-if: veth2 } }
+`)
+}

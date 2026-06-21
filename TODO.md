@@ -298,6 +298,17 @@
 - [x] **T-1 集成测试**：`tests/vpp/`（仿 integration_test.go）——apply 后用 GoVPP dump 或 vppctl 断言 VPP 状态；用 netcfg-vpp 镜像
 - [x] **D-1 文档**：README/INTRODUCTION 补 VPP 后端章节 + 示例（单文件 renderer / 多文件拆分 / SR-IOV+bond）
 
+### 阶段 N — VPP NAT（netcfg 扩展，netplan 无对应；`vpp.nat`）
+> 目标：完整 NAT，模式与参数可配置。容器可验（NAT44/64/66 无需特殊硬件）。
+- [x] **N-0 schema**：`vpp.nat`（nat44{mode ed/ei、sessions、inside/outside-vrf、interfaces[role in/out/output]、pools[range]、static[端口转发/1:1/twice-nat/external-interface]}；nat64{prefix、interfaces、pools}；nat66{static}）+ 校验
+- [x] **N-1 nat44-ed 核心**：Nat44EdPluginEnableDisable + Nat44InterfaceAddDelFeature(in/out) + Nat44EdAddDelOutputInterface(masquerade) + Nat44AddDelAddressRange(pool)。容器验 SNAT
+- [x] **N-2 nat44 静态映射**：Nat44AddDelStaticMapping——端口转发(proto+ports)/1:1(addr-only)/external-interface/twice-nat。容器验 DNAT
+- [x] **N-3 nat64**：Nat64PluginEnableDisable + Prefix + Interface + PoolAddrRange
+- [x] **N-4 nat66**：Nat66 静态映射
+- [~] **N-5 幂等/回收**（再 apply 幂等已实现；NAT 条目回收/diff 待补）：再 apply 幂等（吞 "exists"）；NAT 状态入 vpp-state 并回收
+- [x] **N-6 测试 + 文档**：tests/vpp NAT 用例（SNAT/端口转发/nat64）；README/INTRODUCTION/example
+- 模式：nat44 `mode: ed`(默认,完整)/`ei`(传统)；cnat/det44/pnat 暂不做
+
 ### 边界/未决
 - netns × VPP 交叉（首版 VPP 仅 default 上下文）
 - bridge domain / BVI / sub-if 的命名与回收策略细化（S-2）

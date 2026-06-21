@@ -47,3 +47,26 @@ network:
     br0:
       interfaces: [vx100]            # 把 vxlan 加入 bridge domain
       addresses: [10.22.0.1/24]      # 带地址 → 自动建 BVI loopback 承载 L3
+
+# ── NAT 示例（netcfg 扩展，VPP nat44/nat64/nat66）────────────────────────────
+# 放在 vpp: 段下；接口 role 引用上面定义的 VPP 接口。
+#   nat:
+#     nat44:
+#       enable: true
+#       mode: ed                      # ed(默认,完整) | ei
+#       sessions: 63000
+#       interfaces:
+#         - { name: eth0, role: inside }
+#         - { name: bond0, role: outside }   # 或 role: output 出口动态 SNAT
+#       pools:
+#         - { start: 203.0.113.10, end: 203.0.113.20 }
+#       static:
+#         - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }  # 端口转发
+#         - { local: 10.0.0.6, external: 203.0.113.11 }    # 1:1
+#     nat64:
+#       enable: true
+#       prefix: "64:ff9b::/96"
+#       interfaces: [{ name: eth0, role: inside }, { name: bond0, role: outside }]
+#       pools: [{ start: 203.0.113.30, end: 203.0.113.40 }]
+#     nat66:
+#       static: [{ local: "2001:db8::5", external: "2001:db8:1::5" }]

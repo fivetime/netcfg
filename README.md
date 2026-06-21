@@ -291,6 +291,42 @@ Requirements: a running VPP (binary API socket at `/run/vpp/api.sock`), and netc
 running as root or in the `vpp` group. netcfg connects and verifies binding
 compatibility (CRC) at apply time.
 
+### VPP NAT (netcfg extension)
+
+VPP NAT (no netplan equivalent) is configured under `vpp.nat` — NAT44 (SNAT/
+masquerade, address pools, static 1:1 and port-forward, twice-nat), NAT64, NAT66:
+
+```yaml
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    nat:
+      nat44:
+        enable: true
+        mode: ed              # ed (endpoint-dependent, default) | ei
+        sessions: 63000
+        interfaces:
+          - { name: lan, role: inside }
+          - { name: wan, role: outside }   # or role: output for output-feature SNAT
+        pools:
+          - { start: 203.0.113.10, end: 203.0.113.20 }
+        static:
+          - { proto: tcp, local: 10.0.0.5, local-port: 80, external: 203.0.113.10, external-port: 8080 }  # port-forward
+          - { local: 10.0.0.6, external: 203.0.113.11 }     # 1:1
+      nat64:
+        enable: true
+        prefix: "64:ff9b::/96"
+        interfaces: [{ name: v6lan, role: inside }, { name: wan, role: outside }]
+        pools: [{ start: 203.0.113.30, end: 203.0.113.40 }]
+      nat66:
+        static: [{ local: "2001:db8::5", external: "2001:db8:1::5" }]
+```
+
+NAT applies live via the nat44_ed / nat64 / nat66 plugins. Re-apply is idempotent
+(adding existing entries is a no-op). Note: removing a NAT entry from config is not
+yet auto-reaped from VPP (re-apply is additive).
+
 ## Comparison with netplan
 
 | Feature | netplan | netcfg |

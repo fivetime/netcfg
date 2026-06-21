@@ -207,6 +207,11 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 		}
 	}
 
+	// NAT（在设备就绪后应用，接口角色需引用已建接口）
+	if global != nil && global.NAT != nil {
+		a.ApplyNat(ctx, global.NAT)
+	}
+
 	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备（孤儿）。
 	desired := buildDesiredVPPState(v)
 	reapVPPOrphans(ctx, a, prev, desired)
