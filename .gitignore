@@ -31,3 +31,6 @@ Thumbs.db
 
 # Go
 vendor/
+
+# integration test binary
+tests/integration/integration.test

@@ -250,7 +250,9 @@
   - [x] config 解析/合并/Normalize + Address/DHCPOverrides/RAOverrides 解析（config_test.go，cover 54.9%）
   - [x] state diff（ComputeDiff 含 system/netcfg 删除规则、地址/路由 diff、namespace 增删）+ CRUD（state_test.go，cover 73.0%）
   - [ ] netlink 参数映射（bond/bridge/route/dhcp overrides 的 *OptionsFromConfig / parse* —— 这些在 netlink/cmd 包，netlink 仅 linux 可编译，需 GOOS=linux 测试环境或拆出纯函数）
-- [ ] **集成测试**：基于 netns 的端到端测试（`tests/` 目录已有 supported/unsupported/netns 用例骨架，但无 `.go` 测试）
+- [x] **集成测试**：`tests/integration/`（`//go:build integration`）—— 在 privileged 容器/真机中 exec netcfg 二进制 apply，再用 netlink 断言**实际内核状态**（不只 rc）。覆盖 dummy+地址、vlan、bridge enslave、bond enslave、vxlan(tunnels:mode)、静态路由、activation-mode(off→down+地址)、netns+跨 ns veth、幂等(apply 两次)、destroy(netns 删除)。运行：`tests/integration/run.sh`（Docker）或 `RUN_LOCAL=1 ...`（本机 root）。10/10 通过
+  - 集成测试副产物：发现 activation-mode 仅在 ethernet 路径（setupDeviceWithDHCP）生效，dummy-devices 走 setupDevice 不处理——activation-mode 本是 physical 概念，按 ethernet 路径测试与文档（dummy 始终由 netcfg 创建管理，扩展到全设备类型价值低，记此边界）
+- [x] **兼容性测试**：`tests/compat/` —— 全部 34 个 netplan examples apply（见 COMPAT_TEST_PLAN.md），rc=0 零 panic + 关键项功能性抽查
 - [ ] **配置校验增强**：解析期校验字段合法性、未知字段告警（与 P0-8 联动）
 - [ ] **man page 文档**
 - [ ] 每个 P0/P1 任务完成时同步更新 README/INTRODUCTION 的对比表
