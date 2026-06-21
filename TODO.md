@@ -153,7 +153,11 @@
 
 ## 🟢 P2 — 补齐设备类型与高级功能（M3）
 
-### P2-1 WiFi 无线网络 · **L**
+### P2-1 WiFi 无线网络 · **L** · ✅ 已完成（生成 conf + systemd unit）
+- config 新增 `wifis`（Wifi/AccessPoint，复用 802.1x 的 `auth` 块）；设备级地址/路由/DHCP 复用以太网路径
+- `cmd/wifi.go` `setupWifis`：生成 `/etc/netcfg/wpa-<iface>.conf`（每 AP 一个 network 块）+ systemd unit（wpa_supplicant -D nl80211），best-effort systemctl enable；regulatory-domain 经 iw reg set
+- AP 鉴权：password→PSK；auth.key-management = sae(SAE/WPA3) / eap*(WPA-EAP, 复用 writeEAPFields) / none(开放)；mode/bssid/hidden 均支持
+- 真机验证：PSK / SAE / EAP-TLS / EAP-TTLS / open 四类 conf 正确，wlan 地址应用正常
 - [ ] `wifis.*`：access-points（password, mode, band, channel, bssid, hidden）, auth(WPA/WPA2/WPA3/Enterprise), wakeonwlan, regulatory-domain（netplan-yaml.md:1153-1247）
 - 需集成 wpa_supplicant 或 iwd
 

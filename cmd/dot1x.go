@@ -85,22 +85,28 @@ func buildWPASupplicantConf(km string, auth *config.Auth) string {
 		b.WriteString("\tkey_mgmt=WPA-EAP\n")
 	}
 
-	if auth.Method != "" {
-		b.WriteString("\teap=" + strings.ToUpper(auth.Method) + "\n")
-	}
-	writeQuoted(&b, "identity", auth.Identity)
-	writeQuoted(&b, "anonymous_identity", auth.AnonymousIdentity)
-	writeQuoted(&b, "password", auth.Password)
-	writeQuoted(&b, "ca_cert", auth.CACertificate)
-	writeQuoted(&b, "client_cert", auth.ClientCertificate)
-	writeQuoted(&b, "private_key", auth.ClientKey)
-	writeQuoted(&b, "private_key_passwd", auth.ClientKeyPassword)
-	if auth.Phase2Auth != "" {
-		b.WriteString("\tphase2=\"auth=" + auth.Phase2Auth + "\"\n")
-	}
+	writeEAPFields(&b, auth)
 
 	b.WriteString("}\n")
 	return b.String()
+}
+
+// writeEAPFields 把 EAP/证书相关字段写入 wpa_supplicant network={} 块（不含 key_mgmt，
+// 由调用方按有线 802.1x / WiFi 决定）。供有线 802.1x 与 WiFi 企业认证共用。
+func writeEAPFields(b *strings.Builder, auth *config.Auth) {
+	if auth.Method != "" {
+		b.WriteString("\teap=" + strings.ToUpper(auth.Method) + "\n")
+	}
+	writeQuoted(b, "identity", auth.Identity)
+	writeQuoted(b, "anonymous_identity", auth.AnonymousIdentity)
+	writeQuoted(b, "password", auth.Password)
+	writeQuoted(b, "ca_cert", auth.CACertificate)
+	writeQuoted(b, "client_cert", auth.ClientCertificate)
+	writeQuoted(b, "private_key", auth.ClientKey)
+	writeQuoted(b, "private_key_passwd", auth.ClientKeyPassword)
+	if auth.Phase2Auth != "" {
+		b.WriteString("\tphase2=\"auth=" + auth.Phase2Auth + "\"\n")
+	}
 }
 
 func writeQuoted(b *strings.Builder, key, val string) {

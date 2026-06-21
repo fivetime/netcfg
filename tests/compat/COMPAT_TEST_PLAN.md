@@ -63,14 +63,14 @@
 | # | example | 预期 | 状态 |
 |---|---------|------|------|
 | D1 | offload.yaml | 忽略 offload 字段，应用以太网地址 | ✅ |
-| D2 | dhcp_wired8021x.yaml | 忽略 802.1x auth，处理 dhcp/地址 | ✅ |
+| D2 | dhcp_wired8021x.yaml | 生成 wpa_supplicant conf+unit (P1-3) | ✅ |
 | D3 | network_manager.yaml | 忽略 renderer，应用设备 | ✅ |
 | D4 | infiniband.yaml | 不支持 IB，告警/跳过不崩溃 | ✅ |
-| D5 | wireless.yaml | warnUnsupportedConfig 告警 wifis | ✅ |
-| D6 | wireless_adhoc.yaml | 同上 | ✅ |
-| D7 | wireless_wpa3.yaml | 同上 | ✅ |
-| D8 | wpa3_enterprise.yaml | 同上 | ✅ |
-| D9 | wpa_enterprise.yaml | 同上 | ✅ |
+| D5 | wireless.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
+| D6 | wireless_adhoc.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
+| D7 | wireless_wpa3.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
+| D8 | wpa3_enterprise.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
+| D9 | wpa_enterprise.yaml | ✅ 生成 wpa_supplicant conf (P2-1) |
 | D10 | modem.yaml | 告警 modems | ✅ |
 | D11 | openvswitch.yaml | 告警 openvswitch | ✅ |
 | D12 | sriov.yaml | SR-IOV 字段忽略/告警，应用受支持部分 | ✅ |

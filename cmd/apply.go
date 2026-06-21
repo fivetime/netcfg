@@ -208,6 +208,16 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 
 	// 注：WireGuard 设备经 tunnels:mode:wireguard 处理，已在 Tunnels 循环中跟踪。
 
+	// WiFi（物理 wlan，CreatedBy=system，不删除）
+	for name, cfg := range ns.Wifis {
+		nsState.Devices[name] = &state.DeviceState{
+			Type:      "wifi",
+			Addresses: addrStrings(cfg.Addresses),
+			Routes:    routesToStrings(cfg.Routes),
+			CreatedBy: "system",
+		}
+	}
+
 	// Veth
 	for name, cfg := range ns.VethDevices {
 		nsState.Devices[name] = &state.DeviceState{
@@ -443,6 +453,11 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 	// 1. 物理设备（移入 netns）
 	if err := setupEthernets(mgr, nsName, cfg.Ethernets); err != nil {
 		return fmt.Errorf("failed to setup ethernets: %w", err)
+	}
+
+	// 1b. WiFi 设备（生成 wpa_supplicant 配置 + 设备级地址/路由）
+	if err := setupWifis(mgr, nsName, cfg.Wifis); err != nil {
+		return fmt.Errorf("failed to setup wifis: %w", err)
 	}
 
 	// 2. Dummy 设备

@@ -31,7 +31,7 @@ import (
 // 用于对 netplan 中存在但 netcfg 不支持的配置段告警（见 warnUnsupportedConfig）。
 var supportedNetworkKeys = map[string]bool{
 	"version": true, "renderer": true,
-	"ethernets": true, "dummy-devices": true,
+	"ethernets": true, "wifis": true, "dummy-devices": true,
 	"virtual-ethernets": true, "veth-devices": true,
 	"macvlan-devices": true, "macvtap-devices": true, "ipvlan-devices": true,
 	"bridges": true, "bonds": true, "vlans": true,
@@ -85,6 +85,7 @@ type Network struct {
 
 	// 顶层设备配置 → default namespace
 	Ethernets        map[string]*Ethernet        `yaml:"ethernets,omitempty"`
+	Wifis            map[string]*Wifi            `yaml:"wifis,omitempty"`
 	DummyDevices     map[string]*Ethernet        `yaml:"dummy-devices,omitempty"`
 	VirtualEthernets map[string]*VirtualEthernet `yaml:"virtual-ethernets,omitempty"` // netplan 标准 veth
 	VethDevices      map[string]*VethDevice      `yaml:"veth-devices,omitempty"`      // netcfg 扩展：跨 netns veth
@@ -108,6 +109,7 @@ type Network struct {
 type Namespace struct {
 	Loopback         *Ethernet                   `yaml:"loopback,omitempty"`
 	Ethernets        map[string]*Ethernet        `yaml:"ethernets,omitempty"`
+	Wifis            map[string]*Wifi            `yaml:"wifis,omitempty"`
 	DummyDevices     map[string]*Ethernet        `yaml:"dummy-devices,omitempty"`
 	VirtualEthernets map[string]*VirtualEthernet `yaml:"virtual-ethernets,omitempty"`
 	VethDevices      map[string]*VethDevice      `yaml:"veth-devices,omitempty"`
@@ -165,6 +167,35 @@ type Auth struct {
 	ClientKey         string `yaml:"client-key,omitempty"`
 	ClientKeyPassword string `yaml:"client-key-password,omitempty"`
 	Phase2Auth        string `yaml:"phase2-auth,omitempty"`
+}
+
+// Wifi 无线设备配置（netplan wifis）。netcfg 生成 wpa_supplicant 配置 + systemd unit
+// （-D nl80211），并对 wlan 设备应用常规地址/路由/DHCP（复用以太网路径）。
+type Wifi struct {
+	AccessPoints     map[string]*AccessPoint `yaml:"access-points,omitempty"`
+	Addresses        []Address               `yaml:"addresses,omitempty"`
+	DHCP4            bool                    `yaml:"dhcp4,omitempty"`
+	DHCP6            bool                    `yaml:"dhcp6,omitempty"`
+	Gateway4         string                  `yaml:"gateway4,omitempty"`
+	Gateway6         string                  `yaml:"gateway6,omitempty"`
+	MTU              int                     `yaml:"mtu,omitempty"`
+	Routes           []*Route                `yaml:"routes,omitempty"`
+	Nameservers      *Nameservers            `yaml:"nameservers,omitempty"`
+	AcceptRA         *bool                   `yaml:"accept-ra,omitempty"`
+	LinkLocal        []string                `yaml:"link-local,omitempty"`
+	RegulatoryDomain string                  `yaml:"regulatory-domain,omitempty"`
+	Wakeonwlan       []string                `yaml:"wakeonwlan,omitempty"`
+}
+
+// AccessPoint 单个 Wi-Fi 接入点（SSID 为 map 键）。
+type AccessPoint struct {
+	Password string `yaml:"password,omitempty"` // WPA-PSK 口令（等价于 auth.key-management=psk）
+	Mode     string `yaml:"mode,omitempty"`     // infrastructure(默认)/ap/adhoc
+	Band     string `yaml:"band,omitempty"`     // 2.4GHz/5GHz
+	Channel  int    `yaml:"channel,omitempty"`
+	BSSID    string `yaml:"bssid,omitempty"`
+	Hidden   bool   `yaml:"hidden,omitempty"`
+	Auth     *Auth  `yaml:"auth,omitempty"`
 }
 
 // RAOverrides IPv6 Router Advertisement 行为覆盖（netplan ra-overrides）。
@@ -619,6 +650,7 @@ func (t *Tunnel) toVxlan() *Vxlan {
 func (c *Config) HasDefaultNamespaceConfig() bool {
 	n := c.Network
 	return len(n.Ethernets) > 0 ||
+		len(n.Wifis) > 0 ||
 		len(n.DummyDevices) > 0 ||
 		len(n.VirtualEthernets) > 0 ||
 		len(n.VethDevices) > 0 ||
@@ -639,6 +671,7 @@ func (c *Config) HasDefaultNamespaceConfig() bool {
 func (n *Network) ToNamespace() *Namespace {
 	return &Namespace{
 		Ethernets:        n.Ethernets,
+		Wifis:            n.Wifis,
 		DummyDevices:     n.DummyDevices,
 		VirtualEthernets: n.VirtualEthernets,
 		VethDevices:      n.VethDevices,
@@ -690,6 +723,7 @@ func LoadConfig(dirPath string) (*Config, error) {
 	merged := &Config{
 		Network: Network{
 			Ethernets:        make(map[string]*Ethernet),
+			Wifis:            make(map[string]*Wifi),
 			DummyDevices:     make(map[string]*Ethernet),
 			VirtualEthernets: make(map[string]*VirtualEthernet),
 			VethDevices:      make(map[string]*VethDevice),
@@ -758,6 +792,7 @@ func mergeConfig(dst, src *Config) {
 
 	// 合并各类设备配置
 	mergeMap(dst.Network.Ethernets, src.Network.Ethernets)
+	mergeMap(dst.Network.Wifis, src.Network.Wifis)
 	mergeMap(dst.Network.DummyDevices, src.Network.DummyDevices)
 	mergeMap(dst.Network.VirtualEthernets, src.Network.VirtualEthernets)
 	mergeMap(dst.Network.VethDevices, src.Network.VethDevices)
@@ -796,6 +831,11 @@ func mergeNamespace(dst, src *Namespace) {
 		dst.Ethernets = make(map[string]*Ethernet)
 	}
 	mergeMap(dst.Ethernets, src.Ethernets)
+
+	if dst.Wifis == nil {
+		dst.Wifis = make(map[string]*Wifi)
+	}
+	mergeMap(dst.Wifis, src.Wifis)
 
 	if dst.DummyDevices == nil {
 		dst.DummyDevices = make(map[string]*Ethernet)
