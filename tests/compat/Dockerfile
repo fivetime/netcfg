@@ -7,6 +7,7 @@ RUN apt-get update && \
         iproute2 \
         iputils-ping \
         wireguard-tools \
+        ethtool \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 

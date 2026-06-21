@@ -62,7 +62,7 @@
 
 | # | example | 预期 | 状态 |
 |---|---------|------|------|
-| D1 | offload.yaml | 忽略 offload 字段，应用以太网地址 | ✅ |
+| D1 | offload.yaml | 经 ethtool -K 应用 offload (P2-5) | ✅ |
 | D2 | dhcp_wired8021x.yaml | 生成 wpa_supplicant conf+unit (P1-3) | ✅ |
 | D3 | network_manager.yaml | 忽略 renderer，应用设备 | ✅ |
 | D4 | infiniband.yaml | 不支持 IB，告警/跳过不崩溃 | ✅ |

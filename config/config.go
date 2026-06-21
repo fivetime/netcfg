@@ -150,7 +150,16 @@ type Ethernet struct {
 	IPv6Privacy    *bool            `yaml:"ipv6-privacy,omitempty"`
 	LinkLocal      []string         `yaml:"link-local,omitempty"`
 	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`
-	Auth           *Auth            `yaml:"auth,omitempty"` // 802.1X/EAP（生成 wpa_supplicant 配置 + systemd unit）
+	Auth           *Auth            `yaml:"auth,omitempty"` // 802.1X/EAP（生成 wpa_supplicant 配置，直接 spawn）
+
+	// 网卡 offload（physical 属性，*bool nil=不改，经 ethtool -K 设置）
+	ReceiveChecksumOffload     *bool `yaml:"receive-checksum-offload,omitempty"`
+	TransmitChecksumOffload    *bool `yaml:"transmit-checksum-offload,omitempty"`
+	TCPSegmentationOffload     *bool `yaml:"tcp-segmentation-offload,omitempty"`
+	TCP6SegmentationOffload    *bool `yaml:"tcp6-segmentation-offload,omitempty"`
+	GenericSegmentationOffload *bool `yaml:"generic-segmentation-offload,omitempty"`
+	GenericReceiveOffload      *bool `yaml:"generic-receive-offload,omitempty"`
+	LargeReceiveOffload        *bool `yaml:"large-receive-offload,omitempty"`
 }
 
 // Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。

@@ -652,7 +652,10 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 			slog.Warn("failed to setup ethernet", "device", name, "error", err)
 		}
 
-		// 802.1X / EAP：生成 wpa_supplicant 配置 + systemd unit（交给 systemd 启动）
+		// 网卡 offload（best-effort，经 ethtool -K）
+		applyOffload(name, cfg)
+
+		// 802.1X / EAP：生成 wpa_supplicant 配置并直接拉起（init-agnostic）
 		if cfg.Auth != nil {
 			setup8021x(name, cfg.Auth)
 		}

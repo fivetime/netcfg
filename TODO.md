@@ -180,7 +180,12 @@
 - [ ] DHCPv6 真续约（`RenewDHCPv6`）：目前 v6 仅请求路径接入，续约可后续补（purego v6 client 已有 Renew/Rebind）
 - 验收：`GOOS=linux go build/vet`（默认 tag）通过；运行期真机需 CAP_NET_RAW（raw socket）验证 DORA/续约（见 M5）
 
-### P2-5 网卡 Offload 配置 · **M**
+### P2-5 网卡 Offload 配置 · **M** · ✅ 已完成（ethtool -K，best-effort）
+- config.Ethernet 新增 7 个 *bool offload 字段（receive/transmit-checksum-offload、tcp/tcp6-segmentation-offload、generic-segmentation/receive-offload、large-receive-offload）
+- `cmd/offload.go` `applyOffload`：把已设字段拼成一条 `ethtool -K <iface> rx/tx/tso/tx-tcp6-segmentation/gso/gro/lro on|off`（tcp6 无短名用完整 feature 名）；ethtool 缺失或设备不支持某 feature → best-effort 告警不中断
+- setupEthernets 接入（设备 up 后）
+- 真机验证：在 veth 上实跑 offload.yaml，rx/tx-checksum、tso/gso/gro 均正确生效（lro 因 veth fixed 不可改，属硬件限制）
+- 选型：用 ethtool 友好名（处理 tx-checksum 分组/版本差异），与 iw / 外部 DHCP 客户端同属"标配小工具 best-effort"，仅配置 offload 时才需 ethtool
 - [ ] `receive/transmit-checksum-offload, tcp/tcp6-segmentation-offload, generic-segmentation-offload, generic-receive-offload, large-receive-offload`（netplan-yaml.md:169-209）
 - 需调用 ethtool（或 ethtool netlink）
 
