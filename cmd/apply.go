@@ -131,7 +131,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Ethernets {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "ethernet",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "system", // 物理设备
 		}
@@ -141,7 +141,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.DummyDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "dummy",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -151,7 +151,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Bridges {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "bridge",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -161,7 +161,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Bonds {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "bond",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -171,7 +171,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Vlans {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "vlan",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -181,7 +181,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Vxlans {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "vxlan",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -200,7 +200,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Tunnels {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "tunnel",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -210,7 +210,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.Wireguards {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "wireguard",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -220,7 +220,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.VethDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "veth",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -230,7 +230,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.MacvlanDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "macvlan",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -240,7 +240,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.IpvlanDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "ipvlan",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -250,7 +250,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.TunDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "tun",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -260,7 +260,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 	for name, cfg := range ns.TapDevices {
 		nsState.Devices[name] = &state.DeviceState{
 			Type:      "tap",
-			Addresses: cfg.Addresses,
+			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
 		}
@@ -533,14 +533,72 @@ func setupLoopback(mgr *nl.NetlinkManager, cfg *config.Ethernet) error {
 	return setupDevice(mgr, "lo", cfg.Addresses, cfg.Routes, 0, "")
 }
 
+// resolveEthernetName 根据 match / set-name 解析 ethernet 配置项对应的实际设备名。
+//
+//   - 有 match：按 driver/mac/name 在既有设备中查找；找到后，若指定了 set-name 或
+//     设备名与配置键不同，则重命名为目标名（set-name 优先，否则用配置键）。无匹配返回 ""。
+//   - 无 match：配置键即设备名；若指定了 set-name 且与键不同且设备存在，则重命名。
+//
+// 注意：match 主要用于 default namespace 的物理网卡；driver 匹配依赖 host /sys。
+func resolveEthernetName(mgr *nl.NetlinkManager, key string, cfg *config.Ethernet) (string, error) {
+	if cfg.Match == nil || (cfg.Match.Name == "" && cfg.Match.MacAddress == "" && cfg.Match.Driver == "") {
+		// 无 match：键即设备名，按需处理 set-name
+		if cfg.SetName != "" && cfg.SetName != key && mgr.LinkExists(key) {
+			slog.Info("renaming interface", "from", key, "to", cfg.SetName)
+			if err := mgr.RenameLink(key, cfg.SetName); err != nil {
+				return "", err
+			}
+			return cfg.SetName, nil
+		}
+		return key, nil
+	}
+
+	matched, err := mgr.FindMatchingLink(nl.MatchCriteria{
+		Name:       cfg.Match.Name,
+		MacAddress: cfg.Match.MacAddress,
+		Driver:     cfg.Match.Driver,
+	})
+	if err != nil {
+		return "", err
+	}
+	if matched == "" {
+		return "", nil
+	}
+
+	target := key
+	if cfg.SetName != "" {
+		target = cfg.SetName
+	}
+	if matched != target {
+		slog.Info("renaming matched interface", "from", matched, "to", target,
+			"match", fmt.Sprintf("%+v", *cfg.Match))
+		if err := mgr.RenameLink(matched, target); err != nil {
+			return "", err
+		}
+	}
+	return target, nil
+}
+
 // setupEthernets 配置以太网设备
 func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*config.Ethernet) error {
 	// 按名称排序确保顺序一致
 	names := sortedKeys(devices)
 
-	for _, name := range names {
-		cfg := devices[name]
-		slog.Debug("setting up ethernet", "name", name, "netns", nsName)
+	for _, key := range names {
+		cfg := devices[key]
+		slog.Debug("setting up ethernet", "id", key, "netns", nsName)
+
+		// 解析实际设备名：处理 match（按 driver/mac/name 匹配既有设备）与
+		// set-name（将匹配到的设备重命名）。无 match 时配置键即设备名（原行为）。
+		name, err := resolveEthernetName(mgr, key, cfg)
+		if err != nil {
+			slog.Warn("failed to resolve ethernet device", "id", key, "error", err)
+			continue
+		}
+		if name == "" {
+			slog.Warn("no device matched; skipping ethernet config", "id", key)
+			continue
+		}
 
 		// 如果在 netns 中且设备不存在，尝试从 default ns 移入
 		if nsName != "" && !mgr.LinkExists(name) {
@@ -586,6 +644,7 @@ func setupDummyDevices(mgr *nl.NetlinkManager, nsName string, devices map[string
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup dummy %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil
@@ -648,6 +707,7 @@ func setupMacvlanDevices(mgr *nl.NetlinkManager, nsName string, devices map[stri
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup %s %s: %w", deviceType, name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil
@@ -671,6 +731,7 @@ func setupVlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup vlan %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil
@@ -765,6 +826,52 @@ func setupVxlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*conf
 }
 
 // setupBonds 配置 bond 设备
+// bondOptionsFromConfig 把 config.BondParameters 映射为 netlink 层的 BondOptions。
+// 传入 nil 时返回零值 options（AddBond 会按内核默认创建 balance-rr bond）。
+func bondOptionsFromConfig(p *config.BondParameters) *nl.BondOptions {
+	if p == nil {
+		return &nl.BondOptions{}
+	}
+	return &nl.BondOptions{
+		Mode:                  p.Mode,
+		LacpRate:              p.LACPRate,
+		MIIMonitorInterval:    p.MIIMonitorInterval,
+		MinLinks:              p.MinLinks,
+		TransmitHashPolicy:    p.TransmitHashPolicy,
+		ADSelect:              p.ADSelect,
+		AllSlavesActive:       p.AllSlavesActive,
+		ARPInterval:           p.ARPInterval,
+		ARPIPTargets:          p.ARPIPTargets,
+		ARPValidate:           p.ARPValidate,
+		ARPAllTargets:         p.ARPAllTargets,
+		UpDelay:               p.UpDelay,
+		DownDelay:             p.DownDelay,
+		FailOverMACPolicy:     p.FailOverMACPolicy,
+		GratuitousARP:         p.GratuitousARP,
+		PacketsPerSlave:       p.PacketsPerSlave,
+		PrimaryReselectPolicy: p.PrimaryReselectPolicy,
+		ResendIGMP:            p.ResendIGMP,
+		LearnPacketInterval:   p.LearnPacketInterval,
+		Primary:               p.Primary,
+	}
+}
+
+// bridgeOptionsFromConfig 把 config.BridgeParameters 的设备级 STP 参数映射为
+// netlink 层的 BridgeOptions（不含 path-cost/port-priority 等每端口参数）。
+func bridgeOptionsFromConfig(p *config.BridgeParameters) *nl.BridgeOptions {
+	if p == nil {
+		return &nl.BridgeOptions{}
+	}
+	return &nl.BridgeOptions{
+		STP:          p.STP,
+		ForwardDelay: p.ForwardDelay,
+		HelloTime:    p.HelloTime,
+		MaxAge:       p.MaxAge,
+		AgeingTime:   p.AgeingTime,
+		Priority:     p.Priority,
+	}
+}
+
 func setupBonds(mgr *nl.NetlinkManager, nsName string, devices map[string]*config.Bond) error {
 	names := sortedKeys(devices)
 
@@ -773,15 +880,16 @@ func setupBonds(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 		slog.Debug("setting up bond", "name", name, "netns", nsName)
 
 		if !mgr.LinkExists(name) {
-			mode := nl.ParseBondMode("balance-rr")
-			if cfg.Parameters != nil && cfg.Parameters.Mode != "" {
-				mode = nl.ParseBondMode(cfg.Parameters.Mode)
-			}
-
-			slog.Info("creating bond device", "name", name, "mode", mode)
-			if err := mgr.AddBond(name, mode); err != nil {
+			opts := bondOptionsFromConfig(cfg.Parameters)
+			slog.Info("creating bond device", "name", name, "mode", opts.Mode)
+			if err := mgr.AddBond(name, opts); err != nil {
 				return fmt.Errorf("failed to create bond %s: %w", name, err)
 			}
+		} else if cfg.Parameters != nil {
+			// bond 已存在：多数参数要求在无 slave 时设置，无法安全热更新。
+			// 提示用户需重建设备才能应用新参数（避免静默忽略）。
+			slog.Warn("bond already exists; parameter changes require recreating the device and are not applied",
+				"name", name)
 		}
 
 		// 添加接口到 bond
@@ -795,6 +903,7 @@ func setupBonds(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup bond %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil
@@ -823,6 +932,14 @@ func setupBridges(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 			}
 		}
 
+		// 设备级 STP 参数（sysfs 可热更新，无论设备是否新建都应用）
+		if cfg.Parameters != nil {
+			slog.Info("setting bridge parameters", "bridge", name)
+			if err := mgr.SetBridgeParameters(name, bridgeOptionsFromConfig(cfg.Parameters)); err != nil {
+				slog.Warn("failed to set bridge parameters", "bridge", name, "error", err)
+			}
+		}
+
 		// 添加接口到 bridge
 		for _, iface := range cfg.Interfaces {
 			slog.Debug("adding interface to bridge", "interface", iface, "bridge", name)
@@ -831,9 +948,26 @@ func setupBridges(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 			}
 		}
 
+		// 每端口 STP 参数（path-cost / port-priority）：须在端口加入网桥后设置
+		if cfg.Parameters != nil {
+			for port, cost := range cfg.Parameters.PathCost {
+				slog.Info("setting bridge port path-cost", "bridge", name, "port", port, "cost", cost)
+				if err := mgr.SetBridgePortPathCost(port, cost); err != nil {
+					slog.Warn("failed to set port path-cost", "port", port, "error", err)
+				}
+			}
+			for port, prio := range cfg.Parameters.PortPriority {
+				slog.Info("setting bridge port priority", "bridge", name, "port", port, "priority", prio)
+				if err := mgr.SetBridgePortPriority(port, prio); err != nil {
+					slog.Warn("failed to set port priority", "port", port, "error", err)
+				}
+			}
+		}
+
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup bridge %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 
 		// EVPN: 添加静态 FDB 条目
 		for _, fdb := range cfg.FDB {
@@ -899,6 +1033,13 @@ func setupVrfs(mgr *nl.NetlinkManager, nsName string, devices map[string]*config
 		for _, route := range cfg.Routes {
 			if err := addRoute(mgr, name, route); err != nil {
 				slog.Warn("failed to add route", "device", name, "route", route.To, "error", err)
+			}
+		}
+
+		// VRF 级策略路由
+		for _, policy := range cfg.RoutingPolicy {
+			if err := addRoutingPolicy(mgr, policy); err != nil {
+				slog.Warn("failed to add routing policy", "vrf", name, "error", err)
 			}
 		}
 	}
@@ -973,6 +1114,7 @@ func setupVethDevices(mgr *nl.NetlinkManager, nsName string, devices map[string]
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
 			return fmt.Errorf("failed to setup veth %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 
 		// 配置对端
 		if peerNs != "" {
@@ -998,7 +1140,69 @@ func setupVethDevices(mgr *nl.NetlinkManager, nsName string, devices map[string]
 }
 
 // setupDevice 配置设备的通用函数
-func setupDevice(mgr *nl.NetlinkManager, name string, addresses []string, routes []*config.Route, mtu int, mac string) error {
+// applyNameservers 应用设备的静态 DNS（nameserver 地址 + search 域）。
+// ns 为 nil 或空时跳过；失败仅告警不阻塞（与其他设备配置一致）。
+func applyNameservers(mgr *nl.NetlinkManager, name string, ns *config.Nameservers) {
+	if ns == nil || (len(ns.Addresses) == 0 && len(ns.Search) == 0) {
+		return
+	}
+	slog.Info("applying nameservers", "device", name, "addresses", ns.Addresses, "search", ns.Search)
+	if err := nl.ApplyDNS(name, ns.Addresses, ns.Search); err != nil {
+		slog.Warn("failed to apply nameservers", "device", name, "error", err)
+	}
+}
+
+// addrStrings 提取地址的 CIDR 列表（用于 state 跟踪，state 仍以字符串存储地址）。
+func addrStrings(addrs []config.Address) []string {
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, a.CIDR)
+	}
+	return out
+}
+
+// dhcpOverridesToNl 把 config.DHCPOverrides 映射为 netlink 应用侧 overrides。
+// nil 时返回 netplan 默认（use-dns/use-mtu/use-routes=true，use-domains=false）。
+// use-ntp/use-hostname 因 netcfg 不配置 NTP / 系统主机名而为 no-op（显式设置时告警）。
+func dhcpOverridesToNl(o *config.DHCPOverrides) *nl.DHCPOverrides {
+	res := &nl.DHCPOverrides{UseDNS: true, UseMTU: true, UseRoutes: true, UseDomains: false}
+	if o == nil {
+		return res
+	}
+	if o.UseDNS != nil {
+		res.UseDNS = *o.UseDNS
+	}
+	if o.UseMTU != nil {
+		res.UseMTU = *o.UseMTU
+	}
+	if o.UseRoutes != nil {
+		res.UseRoutes = *o.UseRoutes
+	}
+	res.RouteMetric = o.RouteMetric
+	res.UseDomains = parseUseDomains(o.UseDomains)
+	if o.UseNTP != nil {
+		slog.Warn("dhcp override use-ntp is not honored (netcfg does not configure NTP)")
+	}
+	if o.UseHostname != nil {
+		slog.Warn("dhcp override use-hostname is not honored (netcfg does not set system hostname)")
+	}
+	return res
+}
+
+// parseUseDomains 解析 use-domains（bool 或特殊值 "route"）。
+// true -> 把 DHCP 域名作为 DNS search 域；false/"route" -> 不作为 search
+// （"route" 的「仅用于路由查询」语义无法用普通 resolv.conf 表达）。
+func parseUseDomains(v interface{}) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		return strings.EqualFold(x, "true")
+	}
+	return false
+}
+
+func setupDevice(mgr *nl.NetlinkManager, name string, addresses []config.Address, routes []*config.Route, mtu int, mac string) error {
 	// 设置 MTU
 	if mtu > 0 {
 		if err := mgr.SetLinkMTU(name, mtu); err != nil {
@@ -1021,16 +1225,16 @@ func setupDevice(mgr *nl.NetlinkManager, name string, addresses []string, routes
 	// 添加地址
 	for _, addr := range addresses {
 		// 检查地址是否已存在
-		hasAddr, err := mgr.HasAddress(name, addr)
+		hasAddr, err := mgr.HasAddress(name, addr.CIDR)
 		if err != nil {
-			slog.Warn("failed to check address", "device", name, "address", addr, "error", err)
+			slog.Warn("failed to check address", "device", name, "address", addr.CIDR, "error", err)
 			continue
 		}
 
 		if !hasAddr {
-			slog.Info("adding address", "device", name, "address", addr)
-			if err := mgr.AddAddress(name, addr); err != nil {
-				slog.Warn("failed to add address", "device", name, "address", addr, "error", err)
+			slog.Info("adding address", "device", name, "address", addr.CIDR, "label", addr.Label, "lifetime", addr.Lifetime)
+			if err := mgr.AddAddressOpts(name, addr.CIDR, addr.Label, addr.Lifetime); err != nil {
+				slog.Warn("failed to add address", "device", name, "address", addr.CIDR, "error", err)
 			}
 		}
 	}
@@ -1051,6 +1255,13 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 	if cfg.MTU > 0 {
 		if err := mgr.SetLinkMTU(name, cfg.MTU); err != nil {
 			slog.Warn("failed to set mtu", "device", name, "mtu", cfg.MTU, "error", err)
+		}
+	}
+
+	// IPv6 专属 MTU（sysctl，独立于设备 MTU）
+	if cfg.IPv6MTU > 0 {
+		if err := nl.SetIPv6MTU(name, cfg.IPv6MTU); err != nil {
+			slog.Warn("failed to set ipv6 mtu", "device", name, "ipv6-mtu", cfg.IPv6MTU, "error", err)
 		}
 	}
 
@@ -1079,15 +1290,75 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 		}
 	}
 
+	// ra-overrides：netcfg 使用内核 RA，无用户态 RA 客户端，无法消费 RA 的
+	// DNS/域名，也无法将 RA 路由重定向到自定义表（这些是 networkd 后端特性）。
+	// 显式告警，避免静默忽略；schema 已保留，待引入 RA 客户端后实现。
+	if cfg.RAOverrides != nil {
+		slog.Warn("ra-overrides is not honored: netcfg uses kernel RA (accept-ra) with no userspace RA client; "+
+			"use-dns/use-domains/table are ignored (these require the networkd back end)", "device", name)
+	}
+
+	// 处理 IPv6 隐私扩展（临时地址）。须在 SLAAC 之后，使显式设置覆盖
+	// EnableSLAAC 默认写入的 use_tempaddr=2。
+	// true -> use_tempaddr=2（启用，偏好临时地址）；false -> 0（禁用）。
+	if cfg.IPv6Privacy != nil {
+		value := 0
+		if *cfg.IPv6Privacy {
+			value = 2
+		}
+		slog.Info("setting IPv6 privacy extensions", "device", name, "enabled", *cfg.IPv6Privacy)
+		if err := nl.SetIPv6Privacy(name, value); err != nil {
+			slog.Warn("failed to set IPv6 privacy", "device", name, "error", err)
+		}
+	}
+
+	// 链路本地地址：netplan 默认 [ipv6]。仅在用户显式设置（含空列表）时处理。
+	// IPv6 LL 通过 addr_gen_mode 控制；IPv4 LL（169.254 zeroconf）无直接 netlink/
+	// sysctl 开关，显式告警不支持，避免静默忽略。
+	if cfg.LinkLocal != nil {
+		wantV4, wantV6 := false, false
+		for _, f := range cfg.LinkLocal {
+			switch strings.ToLower(f) {
+			case "ipv4":
+				wantV4 = true
+			case "ipv6":
+				wantV6 = true
+			}
+		}
+		slog.Info("setting link-local addressing", "device", name, "ipv6", wantV6, "ipv4", wantV4)
+		if err := nl.SetLinkLocalIPv6(name, wantV6); err != nil {
+			slog.Warn("failed to set ipv6 link-local", "device", name, "error", err)
+		}
+		if wantV4 {
+			slog.Warn("ipv4 link-local addressing is not supported (no direct netlink/sysctl control); ignoring", "device", name)
+		}
+	}
+
 	// 处理 DHCPv4
 	if cfg.DHCP4 {
 		slog.Info("starting DHCPv4", "device", name)
 		dhcpMgr := nl.NewDHCPManager()
+		ov := dhcpOverridesToNl(cfg.DHCP4Overrides)
 
-		// 异步执行 DHCP，避免阻塞
+		// 请求侧 hostname overrides（send-hostname / hostname）
+		if o := cfg.DHCP4Overrides; o != nil {
+			if o.Hostname != "" {
+				dhcpMgr.SetHostname(o.Hostname)
+			}
+			if o.SendHostname != nil && !*o.SendHostname {
+				dhcpMgr.SetSendHostname(false)
+			}
+		}
+
+		// 异步执行 DHCP，避免阻塞。纯 Go 客户端只返回 lease，必须显式应用。
 		go func() {
-			if _, err := dhcpMgr.RequestDHCPv4(name); err != nil {
+			lease, err := dhcpMgr.RequestDHCPv4(name)
+			if err != nil {
 				slog.Error("DHCPv4 failed", "device", name, "error", err)
+				return
+			}
+			if err := dhcpMgr.ApplyDHCPv4Lease(name, lease, ov); err != nil {
+				slog.Error("failed to apply DHCPv4 lease", "device", name, "error", err)
 			}
 		}()
 	}
@@ -1106,16 +1377,16 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 
 	// 静态地址
 	for _, addr := range cfg.Addresses {
-		hasAddr, err := mgr.HasAddress(name, addr)
+		hasAddr, err := mgr.HasAddress(name, addr.CIDR)
 		if err != nil {
-			slog.Warn("failed to check address", "device", name, "address", addr, "error", err)
+			slog.Warn("failed to check address", "device", name, "address", addr.CIDR, "error", err)
 			continue
 		}
 
 		if !hasAddr {
-			slog.Info("adding address", "device", name, "address", addr)
-			if err := mgr.AddAddress(name, addr); err != nil {
-				slog.Warn("failed to add address", "device", name, "address", addr, "error", err)
+			slog.Info("adding address", "device", name, "address", addr.CIDR, "label", addr.Label, "lifetime", addr.Lifetime)
+			if err := mgr.AddAddressOpts(name, addr.CIDR, addr.Label, addr.Lifetime); err != nil {
+				slog.Warn("failed to add address", "device", name, "address", addr.CIDR, "error", err)
 			}
 		}
 	}
@@ -1149,6 +1420,9 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 		}
 	}
 
+	// DNS
+	applyNameservers(mgr, name, cfg.Nameservers)
+
 	return nil
 }
 
@@ -1169,8 +1443,25 @@ func addRoute(mgr *nl.NetlinkManager, dev string, route *config.Route) error {
 		to = to + "/32"
 	}
 
-	slog.Info("adding route", "to", to, "via", route.Via, "device", dev, "table", route.Table)
-	return mgr.AddRoute(to, route.Via, dev, route.Metric, route.Table)
+	onLink := false
+	if route.OnLink != nil {
+		onLink = *route.OnLink
+	}
+
+	slog.Info("adding route", "to", to, "via", route.Via, "device", dev,
+		"table", route.Table, "scope", route.Scope, "type", route.Type, "on-link", onLink)
+	return mgr.AddRouteOpts(&nl.RouteOptions{
+		Dst:    to,
+		Gw:     route.Via,
+		Dev:    dev,
+		Src:    route.From,
+		Metric: route.Metric,
+		Table:  route.Table,
+		Scope:  route.Scope,
+		Type:   route.Type,
+		OnLink: onLink,
+		MTU:    route.MTU,
+	})
 }
 
 // runPostScript 运行后置脚本
@@ -1224,6 +1515,7 @@ func setupIpvlanDevices(mgr *nl.NetlinkManager, nsName string, devices map[strin
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, ""); err != nil {
 			return fmt.Errorf("failed to setup ipvlan %s: %w", name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil
@@ -1244,6 +1536,7 @@ func setupTunnels(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 				Local:     cfg.Local,
 				Remote:    cfg.Remote,
 				TTL:       cfg.TTL,
+				TOS:       cfg.TOS,
 				Key:       cfg.Key,
 				InputKey:  cfg.InputKey,
 				OutputKey: cfg.OutputKey,
@@ -1364,6 +1657,7 @@ func setupTunTapDevices(mgr *nl.NetlinkManager, nsName string, devices map[strin
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, ""); err != nil {
 			return fmt.Errorf("failed to setup %s %s: %w", deviceType, name, err)
 		}
+		applyNameservers(mgr, name, cfg.Nameservers)
 	}
 
 	return nil

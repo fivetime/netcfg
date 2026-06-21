@@ -39,42 +39,39 @@ This directory contains pure Go DHCP client and relay implementations using the 
   - Remote ID option
 - Hop count enforcement
 
-## How to Enable
+## Status
 
-These files use Go build tags and are **not compiled by default**.
+The pure-Go **clients** (`dhcp4_client.go`, `dhcp6_client.go`) are **compiled by
+default** and wired into the main DHCP path: `netlink.DHCPManager` tries the
+pure-Go client first and falls back to an external client (dhclient/dhcpcd/udhcpc)
+only if the pure-Go path fails. `RenewDHCPv4` performs a real T1 unicast renewal
+via the pure-Go client. No build tag is needed for the clients.
 
-### Step 1: Install Dependencies
+The **relay** (`dhcp_relay.go`) is still behind the `purego` build tag and is
+**not compiled by default** — it has API drift against the current
+insomniacslk/dhcp release and `RelayServer.Run()` is only a skeleton. See TODO
+P2-4 for relay completion.
 
-```bash
-go get github.com/insomniacslk/dhcp@latest
-go mod tidy
+### Dependency
+
+```
+github.com/insomniacslk/dhcp   // added to go.mod (requires Go 1.23+)
 ```
 
-### Step 2: Build with Tag
+### Integration (already done)
 
-```bash
-go build -tags purego -o netcfg .
-```
-
-### Step 3: Integration
-
-To integrate with the main codebase, modify `netlink/dhcp.go`:
+`netlink/dhcp.go` dispatches to the pure-Go client first:
 
 ```go
-// +build purego
-
-package netlink
-
-import "github.com/netcfg/netcfg/netlink/purego"
-
-func (m *DHCPManager) requestDHCPv4PureGo(ctx context.Context, ifaceName string) (*DHCPv4Lease, error) {
-    client, err := purego.NewDHCPv4Client(ifaceName)
-    if err != nil {
+func (m *DHCPManager) RequestDHCPv4WithContext(ctx context.Context, ifaceName string) (*DHCPv4Lease, error) {
+    lease, err := m.requestDHCPv4PureGo(ctx, ifaceName) // 首选纯 Go
+    if err == nil {
+        return lease, nil
+    }
+    if m.externalV4 == "" {
         return nil, err
     }
-    client.SetTimeout(m.timeout)
-    client.SetRetries(m.retries)
-    return client.Request(ctx)
+    return m.requestDHCPv4External(ctx, ifaceName) // 回退外部客户端
 }
 ```
 

@@ -1,15 +1,11 @@
-//go:build purego
-// +build purego
-
 /*
 Copyright © 2024 netcfg authors
 
 Pure Go DHCPv4 client using insomniacslk/dhcp library.
 Supports: DORA handshake, renewal, release, inform, decline.
 
-To enable this module:
-  1. go get github.com/insomniacslk/dhcp@latest
-  2. go build -tags purego -o netcfg .
+Compiled by default and used as the primary DHCP path (netlink.DHCPManager
+falls back to external clients when the pure-Go path fails).
 */
 
 package purego

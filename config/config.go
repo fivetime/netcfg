@@ -18,12 +18,54 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"gopkg.in/yaml.v3"
 )
+
+// supportedNetworkKeys 是 network: 下 netcfg 实际处理的键集合。
+// 用于对 netplan 中存在但 netcfg 不支持的配置段告警（见 warnUnsupportedConfig）。
+var supportedNetworkKeys = map[string]bool{
+	"version": true, "renderer": true,
+	"ethernets": true, "dummy-devices": true, "veth-devices": true,
+	"macvlan-devices": true, "macvtap-devices": true, "ipvlan-devices": true,
+	"bridges": true, "bonds": true, "vlans": true, "vxlans": true,
+	"tunnels": true, "wireguards": true, "vrfs": true,
+	"tun-devices": true, "tap-devices": true, "netns": true,
+}
+
+// warnUnsupportedConfig 解析原始 YAML 顶层结构，对 netcfg 不支持/会忽略的配置段
+// 输出告警，避免用户误以为这些配置已生效（静默失效）。netplan 中的 wifis /
+// modems / openvswitch / nm-devices 等都会在此被识别并提示。
+// 仅告警，不阻断解析（netcfg 仍尽力应用其余受支持的配置）。
+func warnUnsupportedConfig(data []byte, file string) {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return // 解析错误由主流程统一报告
+	}
+	for k, v := range raw {
+		switch k {
+		case "network":
+			netMap, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			for nk := range netMap {
+				if !supportedNetworkKeys[nk] {
+					slog.Warn("unsupported network configuration key; ignored",
+						"key", "network."+nk, "file", file)
+				}
+			}
+		case "netns":
+			// 旧版顶层 netns 格式，受支持
+		default:
+			slog.Warn("unsupported top-level configuration key; ignored", "key", k, "file", file)
+		}
+	}
+}
 
 // Config 顶层配置结构
 type Config struct {
@@ -83,22 +125,101 @@ type Namespace struct {
 
 // Ethernet 以太网设备配置
 type Ethernet struct {
-	Match         *Match           `yaml:"match,omitempty"`
-	SetName       string           `yaml:"set-name,omitempty"`
-	Addresses     []string         `yaml:"addresses,omitempty"`
-	DHCP4         bool             `yaml:"dhcp4,omitempty"`
-	DHCP6         bool             `yaml:"dhcp6,omitempty"`
-	Gateway4      string           `yaml:"gateway4,omitempty"`
-	Gateway6      string           `yaml:"gateway6,omitempty"`
-	MTU           int              `yaml:"mtu,omitempty"`
-	MacAddress    string           `yaml:"macaddress,omitempty"`
-	Routes        []*Route         `yaml:"routes,omitempty"`
-	RoutingPolicy []*RoutingPolicy `yaml:"routing-policy,omitempty"`
-	Nameservers   *Nameservers     `yaml:"nameservers,omitempty"`
-	Optional      bool             `yaml:"optional,omitempty"`
-	AcceptRA      *bool            `yaml:"accept-ra,omitempty"`
-	LinkLocal     []string         `yaml:"link-local,omitempty"`
-	Wakeonlan     bool             `yaml:"wakeonlan,omitempty"`
+	Match          *Match           `yaml:"match,omitempty"`
+	SetName        string           `yaml:"set-name,omitempty"`
+	Addresses      []Address        `yaml:"addresses,omitempty"`
+	DHCP4          bool             `yaml:"dhcp4,omitempty"`
+	DHCP6          bool             `yaml:"dhcp6,omitempty"`
+	DHCP4Overrides *DHCPOverrides   `yaml:"dhcp4-overrides,omitempty"`
+	DHCP6Overrides *DHCPOverrides   `yaml:"dhcp6-overrides,omitempty"`
+	Gateway4       string           `yaml:"gateway4,omitempty"`
+	Gateway6       string           `yaml:"gateway6,omitempty"`
+	MTU            int              `yaml:"mtu,omitempty"`
+	IPv6MTU        int              `yaml:"ipv6-mtu,omitempty"`
+	MacAddress     string           `yaml:"macaddress,omitempty"`
+	Routes         []*Route         `yaml:"routes,omitempty"`
+	RoutingPolicy  []*RoutingPolicy `yaml:"routing-policy,omitempty"`
+	Nameservers    *Nameservers     `yaml:"nameservers,omitempty"`
+	Optional       bool             `yaml:"optional,omitempty"`
+	AcceptRA       *bool            `yaml:"accept-ra,omitempty"`
+	RAOverrides    *RAOverrides     `yaml:"ra-overrides,omitempty"`
+	IPv6Privacy    *bool            `yaml:"ipv6-privacy,omitempty"`
+	LinkLocal      []string         `yaml:"link-local,omitempty"`
+	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`
+}
+
+// RAOverrides IPv6 Router Advertisement 行为覆盖（netplan ra-overrides）。
+//
+// 注意：这些选项本质是 networkd 后端特性（netplan 文档亦注明 "only supported
+// with networkd back end"）。netcfg 使用内核 RA（accept-ra），无用户态 RA 客户端：
+// use-dns/use-domains 的 RA DNS/域名无人消费，table 也无法将内核 RA 路由重定向到
+// 自定义表。因此目前仅保留 schema，并在 apply 时显式告警（避免静默忽略），待将来
+// 引入用户态 RA/NDISC 客户端后再实现。
+// UseDomains 取 bool 或特殊值 "route"，故用 interface{} 以兼容两种写法、不破坏解析。
+type RAOverrides struct {
+	UseDNS     *bool       `yaml:"use-dns,omitempty"`
+	UseDomains interface{} `yaml:"use-domains,omitempty"`
+	Table      int         `yaml:"table,omitempty"`
+}
+
+// DHCPOverrides 覆盖 DHCPv4/v6 的默认行为（netplan dhcp4-overrides/dhcp6-overrides）。
+// *bool 字段 nil 表示未设置（采用 netplan 默认 true）。
+// use-domains 取 bool 或特殊值 "route"（interface{} 兼容两种写法）。
+// 说明：netcfg 在应用 lease 时真实地 honor use-dns/use-mtu/use-routes/route-metric/
+// use-domains，并在请求时 honor send-hostname/hostname；use-ntp/use-hostname 因 netcfg
+// 不配置 NTP / 系统主机名而为 no-op（显式设置时告警）。
+type DHCPOverrides struct {
+	UseDNS       *bool       `yaml:"use-dns,omitempty"`
+	UseNTP       *bool       `yaml:"use-ntp,omitempty"`
+	SendHostname *bool       `yaml:"send-hostname,omitempty"`
+	UseHostname  *bool       `yaml:"use-hostname,omitempty"`
+	UseMTU       *bool       `yaml:"use-mtu,omitempty"`
+	Hostname     string      `yaml:"hostname,omitempty"`
+	UseRoutes    *bool       `yaml:"use-routes,omitempty"`
+	RouteMetric  int         `yaml:"route-metric,omitempty"`
+	UseDomains   interface{} `yaml:"use-domains,omitempty"`
+}
+
+// Address 表示一个 IP 地址条目，支持两种 YAML 写法（兼容旧的纯字符串写法）：
+//   - 纯字符串："192.168.1.10/24"
+//   - 带选项的单键映射："192.168.1.10/24": {lifetime: 0, label: eth0:1}
+//
+// lifetime 取 "forever"（默认/永久）或 "0"（立即弃用，preferred_lft=0）；
+// label 为 IPv4 地址别名标签。
+type Address struct {
+	CIDR     string
+	Lifetime string
+	Label    string
+}
+
+type addressOptions struct {
+	Lifetime interface{} `yaml:"lifetime,omitempty"` // "forever" 或 0，用 interface{} 兼容裸整数
+	Label    string      `yaml:"label,omitempty"`
+}
+
+// UnmarshalYAML 解析纯字符串或单键映射两种地址写法。
+func (a *Address) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		a.CIDR = value.Value
+		return nil
+	case yaml.MappingNode:
+		if len(value.Content) != 2 {
+			return fmt.Errorf("address entry must have exactly one CIDR key")
+		}
+		a.CIDR = value.Content[0].Value
+		var opts addressOptions
+		if err := value.Content[1].Decode(&opts); err != nil {
+			return fmt.Errorf("invalid options for address %s: %w", a.CIDR, err)
+		}
+		if opts.Lifetime != nil {
+			a.Lifetime = fmt.Sprintf("%v", opts.Lifetime)
+		}
+		a.Label = opts.Label
+		return nil
+	default:
+		return fmt.Errorf("invalid address entry (expected string or mapping)")
+	}
 }
 
 // Match 设备匹配规则
@@ -110,7 +231,7 @@ type Match struct {
 
 // VethDevice veth 设备配置
 type VethDevice struct {
-	Addresses   []string     `yaml:"addresses,omitempty"`
+	Addresses   []Address    `yaml:"addresses,omitempty"`
 	Routes      []*Route     `yaml:"routes,omitempty"`
 	MTU         int          `yaml:"mtu,omitempty"`
 	MacAddress  string       `yaml:"macaddress,omitempty"`
@@ -120,19 +241,19 @@ type VethDevice struct {
 
 // VethPeer veth peer 配置
 type VethPeer struct {
-	Name       string   `yaml:"name"`
-	Netns      string   `yaml:"netns,omitempty"`
-	Addresses  []string `yaml:"addresses,omitempty"`
-	Routes     []*Route `yaml:"routes,omitempty"`
-	MTU        int      `yaml:"mtu,omitempty"`
-	MacAddress string   `yaml:"macaddress,omitempty"`
+	Name       string    `yaml:"name"`
+	Netns      string    `yaml:"netns,omitempty"`
+	Addresses  []Address `yaml:"addresses,omitempty"`
+	Routes     []*Route  `yaml:"routes,omitempty"`
+	MTU        int       `yaml:"mtu,omitempty"`
+	MacAddress string    `yaml:"macaddress,omitempty"`
 }
 
 // MacvlanDevice macvlan/macvtap 设备配置
 type MacvlanDevice struct {
 	Link        string       `yaml:"link"`
 	Mode        string       `yaml:"mode,omitempty"` // bridge/vepa/private/passthru/source
-	Addresses   []string     `yaml:"addresses,omitempty"`
+	Addresses   []Address    `yaml:"addresses,omitempty"`
 	Routes      []*Route     `yaml:"routes,omitempty"`
 	MTU         int          `yaml:"mtu,omitempty"`
 	MacAddress  string       `yaml:"macaddress,omitempty"`
@@ -142,7 +263,7 @@ type MacvlanDevice struct {
 // Bridge 网桥配置
 type Bridge struct {
 	Interfaces    []string          `yaml:"interfaces,omitempty"`
-	Addresses     []string          `yaml:"addresses,omitempty"`
+	Addresses     []Address         `yaml:"addresses,omitempty"`
 	Routes        []*Route          `yaml:"routes,omitempty"`
 	MTU           int               `yaml:"mtu,omitempty"`
 	MacAddress    string            `yaml:"macaddress,omitempty"`
@@ -170,7 +291,7 @@ type BridgeParameters struct {
 // Bond 绑定配置
 type Bond struct {
 	Interfaces  []string        `yaml:"interfaces,omitempty"`
-	Addresses   []string        `yaml:"addresses,omitempty"`
+	Addresses   []Address       `yaml:"addresses,omitempty"`
 	Routes      []*Route        `yaml:"routes,omitempty"`
 	MTU         int             `yaml:"mtu,omitempty"`
 	MacAddress  string          `yaml:"macaddress,omitempty"`
@@ -208,7 +329,7 @@ type BondParameters struct {
 type Vlan struct {
 	ID          int          `yaml:"id"`
 	Link        string       `yaml:"link"`
-	Addresses   []string     `yaml:"addresses,omitempty"`
+	Addresses   []Address    `yaml:"addresses,omitempty"`
 	Routes      []*Route     `yaml:"routes,omitempty"`
 	MTU         int          `yaml:"mtu,omitempty"`
 	MacAddress  string       `yaml:"macaddress,omitempty"`
@@ -243,7 +364,7 @@ type Vxlan struct {
 	UDPChecksum    bool          `yaml:"udp-checksum,omitempty"`      // UDP checksum
 	UDP6ZeroCSumTx bool          `yaml:"udp6-zero-csum-tx,omitempty"` // IPv6 发送零校验和
 	UDP6ZeroCSumRx bool          `yaml:"udp6-zero-csum-rx,omitempty"` // IPv6 接收零校验和
-	Addresses      []string      `yaml:"addresses,omitempty"`
+	Addresses      []Address     `yaml:"addresses,omitempty"`
 	Routes         []*Route      `yaml:"routes,omitempty"`
 	MTU            int           `yaml:"mtu,omitempty"`
 	MacAddress     string        `yaml:"macaddress,omitempty"`
@@ -268,28 +389,30 @@ type NeighEntry struct {
 
 // Tunnel 隧道配置
 type Tunnel struct {
-	Mode      string   `yaml:"mode"` // gre/ipip/sit/vti/vti6/ip6gre/ip6ip6/ipip6
-	Local     string   `yaml:"local,omitempty"`
-	Remote    string   `yaml:"remote,omitempty"`
-	TTL       int      `yaml:"ttl,omitempty"`
-	Key       string   `yaml:"key,omitempty"`
-	InputKey  string   `yaml:"input-key,omitempty"`
-	OutputKey string   `yaml:"output-key,omitempty"`
-	Addresses []string `yaml:"addresses,omitempty"`
-	Routes    []*Route `yaml:"routes,omitempty"`
-	MTU       int      `yaml:"mtu,omitempty"`
+	Mode      string    `yaml:"mode"` // gre/ipip/sit/vti/vti6/ip6gre/ip6ip6/ipip6
+	Local     string    `yaml:"local,omitempty"`
+	Remote    string    `yaml:"remote,omitempty"`
+	TTL       int       `yaml:"ttl,omitempty"`
+	TOS       int       `yaml:"tos,omitempty"`
+	Key       string    `yaml:"key,omitempty"`
+	InputKey  string    `yaml:"input-key,omitempty"`
+	OutputKey string    `yaml:"output-key,omitempty"`
+	Addresses []Address `yaml:"addresses,omitempty"`
+	Routes    []*Route  `yaml:"routes,omitempty"`
+	MTU       int       `yaml:"mtu,omitempty"`
 }
 
 // Vrf VRF 配置
 type Vrf struct {
-	Table      int      `yaml:"table"`
-	Interfaces []string `yaml:"interfaces,omitempty"`
-	Routes     []*Route `yaml:"routes,omitempty"`
+	Table         int              `yaml:"table"`
+	Interfaces    []string         `yaml:"interfaces,omitempty"`
+	Routes        []*Route         `yaml:"routes,omitempty"`
+	RoutingPolicy []*RoutingPolicy `yaml:"routing-policy,omitempty"`
 }
 
 // Wireguard WireGuard 配置
 type Wireguard struct {
-	Addresses  []string         `yaml:"addresses,omitempty"`
+	Addresses  []Address        `yaml:"addresses,omitempty"`
 	MTU        int              `yaml:"mtu,omitempty"`
 	ListenPort int              `yaml:"listen-port,omitempty"`
 	PrivateKey string           `yaml:"private-key,omitempty"`
@@ -311,7 +434,7 @@ type WireguardPeer struct {
 type IpvlanDevice struct {
 	Link        string       `yaml:"link"`
 	Mode        string       `yaml:"mode,omitempty"` // l2/l3/l3s
-	Addresses   []string     `yaml:"addresses,omitempty"`
+	Addresses   []Address    `yaml:"addresses,omitempty"`
 	Routes      []*Route     `yaml:"routes,omitempty"`
 	MTU         int          `yaml:"mtu,omitempty"`
 	Nameservers *Nameservers `yaml:"nameservers,omitempty"`
@@ -319,7 +442,7 @@ type IpvlanDevice struct {
 
 // TunTapDevice TUN/TAP 设备配置
 type TunTapDevice struct {
-	Addresses   []string     `yaml:"addresses,omitempty"`
+	Addresses   []Address    `yaml:"addresses,omitempty"`
 	Routes      []*Route     `yaml:"routes,omitempty"`
 	MTU         int          `yaml:"mtu,omitempty"`
 	User        string       `yaml:"user,omitempty"`
@@ -353,7 +476,7 @@ type RoutingPolicy struct {
 
 // Nameservers DNS 配置
 type Nameservers struct {
-	Addresses []string `yaml:"addresses,omitempty"`
+	Addresses []string `yaml:"addresses,omitempty"` // DNS 服务器 IP（纯字符串，非接口地址）
 	Search    []string `yaml:"search,omitempty"`
 }
 
@@ -475,6 +598,7 @@ func LoadConfig(dirPath string) (*Config, error) {
 			return nil, fmt.Errorf("failed to parse %s: %w", file, err)
 		}
 
+		warnUnsupportedConfig(data, file)
 		cfg.Normalize()
 		mergeConfig(merged, &cfg)
 	}
@@ -494,6 +618,7 @@ func LoadConfigFile(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse %s: %w", filePath, err)
 	}
 
+	warnUnsupportedConfig(data, filePath)
 	cfg.Normalize()
 	return &cfg, nil
 }

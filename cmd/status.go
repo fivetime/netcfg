@@ -11,17 +11,22 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/netcfg/netcfg/config"
 	nl "github.com/netcfg/netcfg/netlink"
 	"github.com/spf13/cobra"
 	"github.com/vishvananda/netlink"
 )
 
 var (
-	statusAll   bool
-	statusNetns string
+	statusAll         bool
+	statusNetns       string
+	statusWait        bool
+	statusWaitTimeout int
 )
 
 var statusCmd = &cobra.Command{
@@ -39,9 +44,15 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	statusCmd.Flags().BoolVarP(&statusAll, "all", "a", false, "Show all namespaces")
 	statusCmd.Flags().StringVarP(&statusNetns, "netns", "n", "", "Show specific namespace")
+	statusCmd.Flags().BoolVar(&statusWait, "wait", false, "Wait until all required (non-optional) interfaces are up, then exit")
+	statusCmd.Flags().IntVar(&statusWaitTimeout, "wait-timeout", 120, "Timeout in seconds for --wait")
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	if statusWait {
+		return waitOnline()
+	}
+
 	if statusAll {
 		return showAllNamespaces(args)
 	}
@@ -51,6 +62,68 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return showNamespace("", args)
+}
+
+// waitOnline 阻塞直到 default namespace 中所有「必需」(未标记 optional) 的
+// ethernet 接口就绪，或超时。用于 netcfg-wait-online.service / network-online.target。
+// optional:true 的接口不参与等待（缺失/未就绪不阻塞启动）。
+func waitOnline() error {
+	cfg, err := config.LoadConfig(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	required := make([]string, 0)
+	for name, eth := range cfg.Network.Ethernets {
+		if eth != nil && !eth.Optional {
+			required = append(required, name)
+		}
+	}
+	sort.Strings(required)
+
+	if len(required) == 0 {
+		fmt.Println("no required interfaces to wait for")
+		return nil
+	}
+
+	mgr, err := nl.New()
+	if err != nil {
+		return err
+	}
+	defer mgr.Close()
+
+	deadline := time.Now().Add(time.Duration(statusWaitTimeout) * time.Second)
+	for {
+		pending := make([]string, 0)
+		for _, name := range required {
+			if !linkReady(mgr, name) {
+				pending = append(pending, name)
+			}
+		}
+		if len(pending) == 0 {
+			fmt.Printf("all required interfaces up: %s\n", strings.Join(required, ", "))
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %ds waiting for interfaces: %s",
+				statusWaitTimeout, strings.Join(pending, ", "))
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// linkReady 判断接口是否已就绪：存在、管理态 UP、且 operational 状态为 up
+// (OperUnknown 视为就绪，许多虚拟/无 carrier 语义的设备报告 unknown)。
+func linkReady(mgr *nl.NetlinkManager, name string) bool {
+	link, err := mgr.GetLink(name)
+	if err != nil {
+		return false
+	}
+	attrs := link.Attrs()
+	if attrs.Flags&net.FlagUp == 0 {
+		return false
+	}
+	return attrs.OperState == netlink.OperUp || attrs.OperState == netlink.OperUnknown
 }
 
 func showAllNamespaces(filterInterfaces []string) error {

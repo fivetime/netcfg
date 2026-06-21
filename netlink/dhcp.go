@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netcfg/netcfg/netlink/purego"
 	"github.com/vishvananda/netlink"
 )
 
@@ -90,8 +91,19 @@ func (m *DHCPManager) detectExternalClients() {
 
 func (m *DHCPManager) SetTimeout(d time.Duration) { m.timeout = d }
 func (m *DHCPManager) SetRetries(n int)           { m.retries = n }
+
+// SetHostname 覆盖请求时发送的主机名（DHCP option 12 / hostname override）。
+func (m *DHCPManager) SetHostname(h string) { m.hostname = h }
+
+// SetSendHostname 控制是否发送主机名；false 时清空 hostname（不发送 option 12）。
+func (m *DHCPManager) SetSendHostname(send bool) {
+	if !send {
+		m.hostname = ""
+	}
+}
 func (m *DHCPManager) HasClient() (v4, v6 bool) {
-	return m.externalV4 != "", m.externalV6 != ""
+	// 纯 Go 客户端始终内建可用（运行期需 CAP_NET_RAW）；外部客户端作为回退。
+	return true, true
 }
 
 // RequestDHCPv4 请求 DHCPv4 地址
@@ -102,10 +114,52 @@ func (m *DHCPManager) RequestDHCPv4(ifaceName string) (*DHCPv4Lease, error) {
 func (m *DHCPManager) RequestDHCPv4WithContext(ctx context.Context, ifaceName string) (*DHCPv4Lease, error) {
 	slog.Info("requesting DHCPv4", "interface", ifaceName)
 
-	if m.externalV4 == "" {
-		return nil, fmt.Errorf("no DHCPv4 client (install dhclient/dhcpcd/udhcpc)")
+	// 首选纯 Go 实现；失败时回退到外部客户端（若有）。
+	lease, err := m.requestDHCPv4PureGo(ctx, ifaceName)
+	if err == nil {
+		return lease, nil
 	}
+	slog.Warn("pure-Go DHCPv4 failed; trying external client", "interface", ifaceName, "error", err)
+	if m.externalV4 == "" {
+		return nil, fmt.Errorf("DHCPv4 failed (pure-Go: %v; no external client available)", err)
+	}
+	return m.requestDHCPv4External(ctx, ifaceName)
+}
 
+// requestDHCPv4PureGo 使用纯 Go 客户端获取 DHCPv4 租约。
+func (m *DHCPManager) requestDHCPv4PureGo(ctx context.Context, ifaceName string) (*DHCPv4Lease, error) {
+	client, err := purego.NewDHCPv4Client(ifaceName)
+	if err != nil {
+		return nil, err
+	}
+	client.SetTimeout(m.timeout)
+	client.SetRetries(m.retries)
+	if m.hostname != "" {
+		client.SetHostname(m.hostname)
+	}
+	p, err := client.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return purego4ToLease(p), nil
+}
+
+// purego4ToLease 把 purego 的 DHCPv4 租约映射为本包的 DHCPv4Lease。
+func purego4ToLease(p *purego.DHCPv4Lease) *DHCPv4Lease {
+	return &DHCPv4Lease{
+		IP:         p.IP,
+		Netmask:    p.Netmask,
+		Gateway:    p.Gateway,
+		DNS:        p.DNS,
+		Domain:     p.Domain,
+		LeaseTime:  p.LeaseTime,
+		ServerIP:   p.ServerIP,
+		MTU:        p.MTU,
+		NTPServers: p.NTPServers,
+	}
+}
+
+func (m *DHCPManager) requestDHCPv4External(ctx context.Context, ifaceName string) (*DHCPv4Lease, error) {
 	clientName := filepath.Base(m.externalV4)
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp4-%s.pid", ifaceName)
 	leaseFile := fmt.Sprintf("/var/lib/netcfg/dhcp4-%s.lease", ifaceName)
@@ -138,7 +192,29 @@ func (m *DHCPManager) RequestDHCPv4WithContext(ctx context.Context, ifaceName st
 }
 
 func (m *DHCPManager) RenewDHCPv4(ctx context.Context, ifaceName string, lease *DHCPv4Lease) (*DHCPv4Lease, error) {
-	// 外部客户端通常自己处理续约
+	// 纯 Go T1 单播续约：向原服务器 REQUEST 当前地址。
+	if lease != nil && lease.ServerIP != nil {
+		if client, err := purego.NewDHCPv4Client(ifaceName); err == nil {
+			client.SetTimeout(m.timeout)
+			if m.hostname != "" {
+				client.SetHostname(m.hostname)
+			}
+			cur := &purego.DHCPv4Lease{
+				IP:        lease.IP,
+				Netmask:   lease.Netmask,
+				Gateway:   lease.Gateway,
+				ServerIP:  lease.ServerIP,
+				LeaseTime: lease.LeaseTime,
+			}
+			if renewed, rerr := client.Renew(ctx, cur); rerr == nil {
+				slog.Info("DHCPv4 lease renewed (T1 unicast)", "interface", ifaceName)
+				return purego4ToLease(renewed), nil
+			} else {
+				slog.Warn("pure-Go DHCPv4 renew failed; falling back to full request", "interface", ifaceName, "error", rerr)
+			}
+		}
+	}
+	// 回退：重新完整请求（DORA）
 	return m.RequestDHCPv4WithContext(ctx, ifaceName)
 }
 
@@ -165,10 +241,48 @@ func (m *DHCPManager) RequestDHCPv6(ifaceName string, rapidCommit bool) (*DHCPv6
 func (m *DHCPManager) RequestDHCPv6WithContext(ctx context.Context, ifaceName string, rapidCommit bool) (*DHCPv6Lease, error) {
 	slog.Info("requesting DHCPv6", "interface", ifaceName, "rapid_commit", rapidCommit)
 
-	if m.externalV6 == "" {
-		return nil, fmt.Errorf("no DHCPv6 client (install dhclient/dhcpcd)")
+	// 首选纯 Go 实现；失败时回退到外部客户端（若有）。
+	lease, err := m.requestDHCPv6PureGo(ctx, ifaceName, rapidCommit)
+	if err == nil {
+		return lease, nil
 	}
+	slog.Warn("pure-Go DHCPv6 failed; trying external client", "interface", ifaceName, "error", err)
+	if m.externalV6 == "" {
+		return nil, fmt.Errorf("DHCPv6 failed (pure-Go: %v; no external client available)", err)
+	}
+	return m.requestDHCPv6External(ctx, ifaceName)
+}
 
+// requestDHCPv6PureGo 使用纯 Go 客户端获取 DHCPv6 租约。
+func (m *DHCPManager) requestDHCPv6PureGo(ctx context.Context, ifaceName string, rapidCommit bool) (*DHCPv6Lease, error) {
+	client, err := purego.NewDHCPv6Client(ifaceName)
+	if err != nil {
+		return nil, err
+	}
+	client.SetTimeout(m.timeout)
+	client.SetRetries(m.retries)
+	client.SetRapidCommit(rapidCommit)
+	client.SetRequestNA(true)
+	p, err := client.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return purego6ToLease(p), nil
+}
+
+// purego6ToLease 把 purego 的 DHCPv6 租约映射为本包的 DHCPv6Lease。
+func purego6ToLease(p *purego.DHCPv6Lease) *DHCPv6Lease {
+	return &DHCPv6Lease{
+		Addresses:  p.Addresses,
+		Prefixes:   p.Prefixes,
+		DNS:        p.DNS,
+		Domains:    p.Domains,
+		LeaseTime:  p.LeaseTime,
+		ServerDUID: p.ServerDUID,
+	}
+}
+
+func (m *DHCPManager) requestDHCPv6External(ctx context.Context, ifaceName string) (*DHCPv6Lease, error) {
 	clientName := filepath.Base(m.externalV6)
 	pidFile := fmt.Sprintf("/run/netcfg-dhcp6-%s.pid", ifaceName)
 	leaseFile := fmt.Sprintf("/var/lib/netcfg/dhcp6-%s.lease", ifaceName)
@@ -228,8 +342,44 @@ func SetIPv6Privacy(ifaceName string, value int) error {
 	return writeSysctl(ifaceName, "use_tempaddr", fmt.Sprintf("%d", value))
 }
 
+// SetIPv6MTU 单独设置接口的 IPv6 MTU（sysctl，不影响设备整体 MTU）。
+func SetIPv6MTU(ifaceName string, mtu int) error {
+	return writeSysctl(ifaceName, "mtu", fmt.Sprintf("%d", mtu))
+}
+
+// SetLinkLocalIPv6 控制接口是否生成 IPv6 链路本地地址（通过 addr_gen_mode）。
+// enable=true -> addr_gen_mode=0（EUI64 生成，netplan 默认）；false -> 1（none）。
+// 注意：addr_gen_mode 需在 LL 地址生成前设置才彻底生效，对已存在 LL 地址的接口
+// 不会移除既有地址。
+func SetLinkLocalIPv6(ifaceName string, enable bool) error {
+	val := "1" // none
+	if enable {
+		val = "0" // eui64
+	}
+	return writeSysctl(ifaceName, "addr_gen_mode", val)
+}
+
 // ApplyDHCPv4Lease 应用 DHCPv4 租约
-func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease) error {
+// DHCPOverrides 控制应用 DHCP 租约时的行为（对应 netplan dhcp4/6-overrides 中
+// 可在「直接 netlink」下生效的子集）。零值结构表示全部启用（netplan 默认）。
+type DHCPOverrides struct {
+	UseDNS      bool // 应用 lease 的 DNS
+	UseMTU      bool // 应用 lease 的 MTU
+	UseRoutes   bool // 安装 lease 的网关/路由
+	RouteMetric int  // 自动添加路由的 metric（0 = 不设）
+	UseDomains  bool // 把 lease 的 domain 作为 DNS search 域
+}
+
+// defaultDHCPOverrides 返回 netplan 默认（除 use-domains 外均启用）。
+func defaultDHCPOverrides() *DHCPOverrides {
+	return &DHCPOverrides{UseDNS: true, UseMTU: true, UseRoutes: true, UseDomains: false}
+}
+
+func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease, ov *DHCPOverrides) error {
+	if ov == nil {
+		ov = defaultDHCPOverrides()
+	}
+
 	link, err := netlink.LinkByName(ifaceName)
 	if err != nil {
 		return err
@@ -243,14 +393,22 @@ func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease) err
 	if err := netlink.AddrAdd(link, addr); err != nil {
 		return fmt.Errorf("add addr %s/%d: %w", lease.IP, ones, err)
 	}
-	if lease.Gateway != nil {
-		_ = netlink.RouteAdd(&netlink.Route{LinkIndex: link.Attrs().Index, Gw: lease.Gateway})
+	if lease.Gateway != nil && ov.UseRoutes {
+		route := &netlink.Route{LinkIndex: link.Attrs().Index, Gw: lease.Gateway}
+		if ov.RouteMetric > 0 {
+			route.Priority = ov.RouteMetric
+		}
+		_ = netlink.RouteAdd(route)
 	}
-	if lease.MTU > 0 {
+	if lease.MTU > 0 && ov.UseMTU {
 		_ = netlink.LinkSetMTU(link, lease.MTU)
 	}
-	if len(lease.DNS) > 0 {
-		_ = UpdateResolvConf(lease.DNS, lease.Domain)
+	if len(lease.DNS) > 0 && ov.UseDNS {
+		domain := lease.Domain
+		if !ov.UseDomains {
+			domain = ""
+		}
+		_ = UpdateResolvConf(lease.DNS, domain)
 	}
 	slog.Info("DHCPv4 lease applied", "interface", ifaceName, "ip", lease.IP)
 	return nil
@@ -350,6 +508,65 @@ func UpdateResolvConf(dns []net.IP, domain string) error {
 	}
 	for _, d := range dns {
 		b.WriteString("nameserver " + d.String() + "\n")
+	}
+	return os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0644)
+}
+
+// usingSystemdResolved 判断系统的 /etc/resolv.conf 是否由 systemd-resolved 管理。
+func usingSystemdResolved() bool {
+	_, err := os.Stat("/run/systemd/resolve/stub-resolv.conf")
+	return err == nil
+}
+
+// ApplyDNS 为指定接口配置静态 DNS（nameserver 地址 + search 域）。
+//
+// 当系统由 systemd-resolved 管理时，通过 resolvectl 按接口下发（per-link DNS，
+// 与 netplan 行为一致）；否则回退写入 /etc/resolv.conf。
+// 注意：resolv.conf 回退是全局的，多个接口各自配置 DNS 时后者会覆盖前者。
+func ApplyDNS(ifaceName string, addresses, search []string) error {
+	if len(addresses) == 0 && len(search) == 0 {
+		return nil
+	}
+
+	if usingSystemdResolved() {
+		return applyDNSResolvectl(ifaceName, addresses, search)
+	}
+	return writeResolvConf(addresses, search)
+}
+
+func applyDNSResolvectl(ifaceName string, addresses, search []string) error {
+	bin, err := exec.LookPath("resolvectl")
+	if err != nil {
+		// systemd-resolved 在运行但找不到 resolvectl：退回写 resolv.conf 并告警，
+		// 避免静默丢弃 DNS 配置。
+		slog.Warn("systemd-resolved detected but resolvectl not found; falling back to /etc/resolv.conf",
+			"interface", ifaceName)
+		return writeResolvConf(addresses, search)
+	}
+
+	if len(addresses) > 0 {
+		args := append([]string{"dns", ifaceName}, addresses...)
+		if out, err := exec.Command(bin, args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("resolvectl dns %s: %w (%s)", ifaceName, err, strings.TrimSpace(string(out)))
+		}
+	}
+	if len(search) > 0 {
+		args := append([]string{"domain", ifaceName}, search...)
+		if out, err := exec.Command(bin, args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("resolvectl domain %s: %w (%s)", ifaceName, err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+func writeResolvConf(addresses, search []string) error {
+	var b strings.Builder
+	b.WriteString("# Generated by netcfg\n")
+	if len(search) > 0 {
+		b.WriteString("search " + strings.Join(search, " ") + "\n")
+	}
+	for _, a := range addresses {
+		b.WriteString("nameserver " + a + "\n")
 	}
 	return os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0644)
 }
