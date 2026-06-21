@@ -250,12 +250,59 @@
 > 决策：做法 A（带 `vpp:` 块或 `renderer: vpp` → 走 VPP）；netplan 习惯优先；两种 NIC 模式（af-packet 共存 / dpdk 独占）；v1 做 L2/L3 全量；SR-IOV VF + bond 组合。
 > 目标 VPP：`fivetime/vpp` 26.02（GHCR `ghcr.io/fivetime/vpp:latest` 测试）。GoVPP `go.fd.io/govpp`（需 go 1.25 + 本地 replace；binapi 对 26.02 重生成）。
 
-- [ ] **V0 脚手架**：顶层+设备级 `vpp:` schema（config.go）；`Applier` 接口 + apply 设备分流；VPP applier 骨架（连接 + CheckCompatiblity）；归属/互斥校验。验收：编译 + 连 GHCR VPP 镜像冒烟
-- [ ] **V1a**：af-packet 接口 + loopback + 地址 + 路由（含默认网关）+ up/mtu/mac/activation-mode。容器端到端断言
-- [ ] **V1b**：VLAN sub-if + bridge domain(+BVI) + bond + vxlan
-- [ ] **V1c**：dpdk/avf 独占 + `startup.conf` 生成（NIC 绑定/hugepages/CPU）+ SR-IOV VF 链路
-- [ ] **测试**：`tests/vpp/`（仿 integration，apply 后用 GoVPP dump / vppctl 断言 VPP 状态）
-- 边界/未决：netns×VPP 交叉、bridge domain/BVI 自动管理与回收、VPP 侧 diff 与 state.go 统一、go 1.25 升级对 CI 影响
+环境就绪：`tests/vpp/` 镜像（VPP 26.02）+ 绑定链路已验证（GoVPP 连 api.sock、CreateLoopback 真实写通过）。
+
+### 阶段 P — 依赖与绑定
+- [ ] **P-1 Go/依赖接入**：go.mod 升 go 1.25；加 `require go.fd.io/govpp` + 开发期 `replace => 本地 govpp 源`；`go build ./...` 通过
+- [ ] **P-2 binapi 绑定**：从 26.02 容器 `/usr/share/vpp/api` 重生成（或 vendor）需要的子包：interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/memif/ethernet_types。决定 vendor 还是依赖 govpp 自带 binapi
+- [ ] **P-3 CI 影响**：CI 用 `go-version-file: go.mod` → 自动升 1.25，确认 workflow 通过
+
+### 阶段 V0 — 脚手架（编译 + 连接冒烟）
+- [ ] **V0-1 config schema**：顶层 `Network.VPP`（api-socket/reconnect/startup{main-core/workers/corelist/hugepages/dpdk{uio-driver/dev}}）；设备级 `VPPDevice`（mode/host-if/pci/rx-queues/tx-queues/num-rx-desc/num-tx-desc/host-ns/socket/id/role/ring-size/bd-id），加到 Ethernet/Bridge 等含 `vpp:` 的设备
+- [ ] **V0-2 设备归属**：`isVPPManaged(cfg)`（有 vpp 块 或 renderer 解析为 vpp）；renderer 继承（设备级>全局）
+- [ ] **V0-3 互斥/合法性校验**：同名设备不得跨内核/VPP；dpdk/avf 必填 pci；mode 枚举校验；解析期报错不静默
+- [ ] **V0-4 Applier 抽象**：定义 applier 接口；现有 netlink 逻辑归 KernelApplier（最小重构）；apply 主流程按设备分流到 Kernel/VPP
+- [ ] **V0-5 VPP applier 骨架**：`netlink/vpp`(新包) 连接 `api-socket`（socketclient）+ 全用到包 `CheckCompatiblity` + 优雅断开；连不上/不兼容明确报错
+- [ ] **V0 验收**：`GOOS=linux go build/vet` 通过；`netcfg apply` 对纯 VPP 配置能连上容器内 VPP 并通过兼容性自检（不下发流量）
+
+### 阶段 V1a — af-packet L3 端到端
+- [ ] **V1a-1 接口创建**：af-packet（AfPacketCreateV3，host-if 默认设备名）+ loopback（CreateLoopback）；幂等（已存在则复用 sw_if_index）
+- [ ] **V1a-2 链路状态**：up（SwInterfaceSetFlags ADMIN_UP）；activation-mode off/manual（不 up / 置 down）
+- [ ] **V1a-3 MTU/MAC**：SwInterfaceSetMtu、SwInterfaceSetMacAddress
+- [ ] **V1a-4 地址**：SwInterfaceAddDelAddress（v4/v6；幂等，diff 增删）
+- [ ] **V1a-5 路由/网关**：IPRouteAddDel（FibPath：via/table/metric）+ 默认路由（to:default / gateway4/6）
+- [ ] **V1a-6 忽略项告警**：VPP 设备上 dhcp/nameservers/wakeonlan/accept-ra 等显式告警（不静默）
+- [ ] **V1a 验收**：容器端到端——apply af-packet+地址+路由 → `vppctl show int/int addr/ip fib` 断言
+
+### 阶段 V1b — L2 + bond + 隧道
+- [ ] **V1b-1 VLAN sub-if**：vlans.{id,link} → CreateSubif（dot1q exact-match）
+- [ ] **V1b-2 bridge domain**：BridgeDomainAddDel（bd-id 自动分配或 vpp.bd-id）+ 成员 SwInterfaceSetL2Bridge
+- [ ] **V1b-3 bridge BVI**：带 addresses 的 bridge 自动建 BVI loopback 承载 L3
+- [ ] **V1b-4 bond**：BondCreate2 + BondAddMember；parameters.mode 映射（802.3ad→lacp 等）
+- [ ] **V1b-5 vxlan**：tunnels:mode:vxlan → VxlanAddDelTunnel；可挂入 bridge domain
+- [ ] **V1b 验收**：容器断言 vlan/bridge/bond/vxlan
+
+### 阶段 V1c — 独占模式 + startup.conf + SR-IOV
+- [ ] **V1c-1 dpdk 模式**：mode:dpdk（pci）→ 写 startup.conf dpdk{dev}；与运行态接口配置衔接
+- [ ] **V1c-2 avf 模式**：mode:avf（pci）→ AvfCreate（avf 插件）
+- [ ] **V1c-3 startup.conf 生成**：vpp.startup → /etc/vpp/startup.conf（main-core/workers/corelist/hugepages/dpdk/uio-driver）；标注需 VPP 重启
+- [ ] **V1c-4 SR-IOV VF 链路**：复用 P2-3 建 VF（内核）+ 绑 vfio + VPP 接管 + VPP bond；顺序编排
+- [ ] **V1c 验收**：真机或带 VF 环境（容器无法完整验证，标注）
+
+### 阶段 S — 状态与持久化
+- [ ] **S-1 VPP 侧 state**：apply 后记录 VPP 已创建对象；与 state.go 统一或独立 vpp state
+- [ ] **S-2 增量 diff**：再次 apply 删除配置中已移除的 VPP 对象（孤儿回收：接口/地址/路由/bd/bond/vxlan）
+- [ ] **S-3 持久化**：确认开机 init 调 `netcfg apply` 经 API 重放即可（无需 unix{exec}）；文档说明
+
+### 阶段 T/D — 测试与文档
+- [ ] **T-1 集成测试**：`tests/vpp/`（仿 integration_test.go）——apply 后用 GoVPP dump 或 vppctl 断言 VPP 状态；用 netcfg-vpp 镜像
+- [ ] **D-1 文档**：README/INTRODUCTION 补 VPP 后端章节 + 示例（单文件 renderer / 多文件拆分 / SR-IOV+bond）
+
+### 边界/未决
+- netns × VPP 交叉（首版 VPP 仅 default 上下文）
+- bridge domain / BVI / sub-if 的命名与回收策略细化（S-2）
+- avf/rdma/memif 插件在目标镜像是否启用（建容器确认）
+- 全模块 CheckCompatiblity（已验 interface OK；ip/l2/vxlan 等 V0/P-2 时确认）
 
 ---
 
