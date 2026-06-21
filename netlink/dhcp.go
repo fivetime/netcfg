@@ -15,7 +15,9 @@ TODO: Vendor insomniacslk/dhcp for pure Go implementation:
 package netlink
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net"
@@ -368,6 +370,42 @@ func SetLinkLocalIPv6(ifaceName string, enable bool) error {
 		val = "0" // eui64
 	}
 	return writeSysctl(ifaceName, "addr_gen_mode", val)
+}
+
+// SetIPv6AddrGenMode 设置 IPv6 接口标识生成方式（netplan ipv6-address-generation）。
+// eui64 -> addr_gen_mode=0；stable-privacy -> addr_gen_mode=2（需先设 stable_secret，
+// 否则内核不生成稳定地址，故从 machine-id+接口名派生确定性密钥，跨 apply/重启稳定）。
+// 注意：经 /proc/sys/net/ipv6/conf/<dev>/...，对 default ns 设备生效（与其它 IPv6
+// sysctl 特性一致的已知边界）。
+func SetIPv6AddrGenMode(ifaceName, mode string) error {
+	switch strings.ToLower(mode) {
+	case "eui64":
+		return writeSysctl(ifaceName, "addr_gen_mode", "0")
+	case "stable-privacy", "stable_privacy":
+		if secret, err := deriveStableSecret(ifaceName); err == nil {
+			if err := writeSysctl(ifaceName, "stable_secret", secret); err != nil {
+				slog.Warn("failed to set stable_secret; stable-privacy may not generate addresses",
+					"device", ifaceName, "error", err)
+			}
+		} else {
+			slog.Warn("cannot derive stable_secret (no machine-id?); stable-privacy may not generate addresses",
+				"device", ifaceName, "error", err)
+		}
+		return writeSysctl(ifaceName, "addr_gen_mode", "2")
+	default:
+		return fmt.Errorf("unknown ipv6-address-generation %q (want eui64 or stable-privacy)", mode)
+	}
+}
+
+// deriveStableSecret 从 /etc/machine-id + 接口名派生 128-bit 确定性密钥，格式化为
+// IPv6 地址字符串（写入 stable_secret）。确定性保证同机同接口每次 apply 地址一致。
+func deriveStableSecret(ifaceName string) (string, error) {
+	mid, err := os.ReadFile("/etc/machine-id")
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(append(bytes.TrimSpace(mid), []byte(ifaceName)...))
+	return net.IP(h[:16]).String(), nil
 }
 
 // ApplyDHCPv4Lease 应用 DHCPv4 租约

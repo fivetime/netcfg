@@ -21,6 +21,7 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
 )
@@ -1241,6 +1242,36 @@ func (m *NetlinkManager) SetLinkNeighSuppress(name string, enable bool) error {
 // EVPN 场景通常禁用学习，由控制平面管理
 func (m *NetlinkManager) SetLinkLearning(name string, enable bool) error {
 	return writeSysfsBool(fmt.Sprintf("/sys/class/net/%s/brport/learning", name), enable)
+}
+
+// SetIPv6Token 设置接口的 IPv6 token（netplan ipv6-address-token）——SLAAC 自动配置
+// 时使用的静态接口标识。vishvananda/netlink v1.1.0 无 helper，故直接构造
+// RTM_SETLINK + IFLA_AF_SPEC{AF_INET6{IFLA_INET6_TOKEN}} 下发。
+// 在当前（default）netns 操作（与其它 IPv6 设置一致的已知边界）。
+func (m *NetlinkManager) SetIPv6Token(ifaceName, token string) error {
+	ip := net.ParseIP(token)
+	if ip == nil || ip.To16() == nil {
+		return fmt.Errorf("invalid ipv6 token %q", token)
+	}
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return fmt.Errorf("failed to get link %s: %w", ifaceName, err)
+	}
+
+	req := nl.NewNetlinkRequest(unix.RTM_SETLINK, unix.NLM_F_ACK)
+	msg := nl.NewIfInfomsg(unix.AF_UNSPEC)
+	msg.Index = int32(link.Attrs().Index)
+	req.AddData(msg)
+
+	afSpec := nl.NewRtAttr(unix.IFLA_AF_SPEC, nil)
+	inet6 := afSpec.AddRtAttr(unix.AF_INET6, nil)
+	inet6.AddRtAttr(unix.IFLA_INET6_TOKEN, []byte(ip.To16()))
+	req.AddData(afSpec)
+
+	if _, err := req.Execute(unix.NETLINK_ROUTE, 0); err != nil {
+		return fmt.Errorf("failed to set ipv6 token on %s: %w", ifaceName, err)
+	}
+	return nil
 }
 
 // SetBridgePortHairpin 设置网桥端口 hairpin 模式（流量是否可从收到的端口原路发回）。

@@ -119,12 +119,15 @@
 - 影响文件：`config/config.go`、新增 `netlink/8021x.go`（需集成 wpa_supplicant 或 systemd-networkd）
 - 依赖：实现机制需调研（netcfg 直接 netlink，802.1X 需用户态 supplicant）
 
-### P1-4 地址高级选项 · **M** · 🟡 lifetime/label 完成
+### P1-4 地址高级选项 · **M** · ✅ 完成
 - [x] `addresses[].lifetime`、`addresses[].label`
 - 实现：`config` 新增 `Address` 类型 + 自定义 `UnmarshalYAML`，**同一 addresses 列表内同时支持纯字符串（旧写法）与单键映射 `cidr: {lifetime, label}`**；lifetime 用 `interface{}` 兼容裸整数 `0` 与字符串 `forever`。13 个设备结构的 `addresses` 字段 `[]string`→`[]Address`（state 仍以字符串存储，`buildNsState` 经 `addrStrings` 转换）。`netlink` 新增 `AddAddressOpts`（label→`Addr.Label`；lifetime `0`→`PreferedLft=0`+`ValidLft=lftForever` 弃用语义，对齐 networkd），`AddAddress` 改薄包装。`setupDevice` 签名 `[]string`→`[]config.Address`（调用点不变）
 - 已 smoke 验证：纯字符串 / map+裸整数 lifetime+label / forever 三种写法均正确解析，旧纯字符串写法向后兼容
 - 注意：`Nameservers.Addresses`（DNS 服务器 IP）保持 `[]string`，不受影响
-- [ ] `ipv6-address-generation`、`ipv6-address-token`（netplan-yaml.md:451-457）—— 延后（address-token 需 sysctl `stable_secret`/token 设置，address-generation 与 addr_gen_mode 相关，单独处理）
+- [x] `ipv6-address-generation`（eui64/stable-privacy）：`netlink.SetIPv6AddrGenMode` 经 sysctl addr_gen_mode（eui64→0；stable-privacy→2 并从 machine-id+接口名派生确定性 stable_secret）。真机验证：addr_gen_mode 0/2、stable_secret 已设
+- [x] `ipv6-address-token`：`NetlinkManager.SetIPv6Token` 直接构造 RTM_SETLINK + IFLA_AF_SPEC{AF_INET6{IFLA_INET6_TOKEN}}（库 v1.1.0 无 helper）。真机验证：veth 上 `ip token show` = `token ::1:2:3:4`；dummy 等不做 ND 的设备内核拒绝（EINVAL，已正确传播告警）
+- 二者互斥（netplan），同设并存时告警并用 token；均在 link-local 之后应用（generation 覆盖 LL 的 addr_gen_mode）
+- 已知边界：经 /proc sysctl 与当前 netns 的 netlink，对 default ns 设备生效（与其它 IPv6 sysctl 特性一致）
 - 验收：`GOOS=linux go build/vet` 通过；config 包 smoke test 通过；运行期 `ip addr`（label/弃用 lft）待真机（见 M5）
 
 ### P1-5 物理设备 match / set-name 真正生效 · **M** · ✅ 已完成

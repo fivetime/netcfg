@@ -148,6 +148,8 @@ type Ethernet struct {
 	AcceptRA       *bool            `yaml:"accept-ra,omitempty"`
 	RAOverrides    *RAOverrides     `yaml:"ra-overrides,omitempty"`
 	IPv6Privacy    *bool            `yaml:"ipv6-privacy,omitempty"`
+	IPv6AddrGen    string           `yaml:"ipv6-address-generation,omitempty"` // eui64/stable-privacy（addr_gen_mode）
+	IPv6AddrToken  string           `yaml:"ipv6-address-token,omitempty"`      // SLAAC 静态接口标识（与 generation 互斥）
 	LinkLocal      []string         `yaml:"link-local,omitempty"`
 	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`       // WoL（ethtool -s wol g）
 	EmitLLDP       *bool            `yaml:"emit-lldp,omitempty"`       // 需 LLDP daemon，netcfg 不实现（告警）

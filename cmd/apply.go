@@ -1510,6 +1510,23 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 		}
 	}
 
+	// ipv6-address-generation / ipv6-address-token（netplan 互斥）。须在 link-local
+	// 之后——generation 也写 addr_gen_mode，应覆盖 link-local 的默认值。
+	if cfg.IPv6AddrToken != "" && cfg.IPv6AddrGen != "" {
+		slog.Warn("ipv6-address-token and ipv6-address-generation are mutually exclusive; using token", "device", name)
+	}
+	if cfg.IPv6AddrToken != "" {
+		slog.Info("setting ipv6 address token", "device", name, "token", cfg.IPv6AddrToken)
+		if err := mgr.SetIPv6Token(name, cfg.IPv6AddrToken); err != nil {
+			slog.Warn("failed to set ipv6-address-token", "device", name, "error", err)
+		}
+	} else if cfg.IPv6AddrGen != "" {
+		slog.Info("setting ipv6 address generation mode", "device", name, "mode", cfg.IPv6AddrGen)
+		if err := nl.SetIPv6AddrGenMode(name, cfg.IPv6AddrGen); err != nil {
+			slog.Warn("failed to set ipv6-address-generation", "device", name, "error", err)
+		}
+	}
+
 	// 处理 DHCPv4
 	if cfg.DHCP4 {
 		slog.Info("starting DHCPv4", "device", name)
