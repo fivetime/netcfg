@@ -77,10 +77,16 @@ func Apply(cfg *config.Config) error {
 		}
 	}
 
-	// 3. 处理 default namespace 的设备
+	// 3. 处理 default namespace 的设备（VPP 设备分流到 VPP applier，其余走内核）
 	if cfg.HasDefaultNamespaceConfig() {
 		slog.Info("configuring default namespace")
-		if err := applyNamespaceConfig("", cfg.Network.ToNamespace()); err != nil {
+		kernelNS, vppDevs := splitVPPDevices(cfg.Network.ToNamespace(), cfg.Network.Renderer)
+		if !vppDevs.empty() {
+			if err := setupVPP(cfg.Network.VPP, vppDevs); err != nil {
+				return fmt.Errorf("failed to configure VPP devices: %w", err)
+			}
+		}
+		if err := applyNamespaceConfig("", kernelNS); err != nil {
 			return fmt.Errorf("failed to configure default namespace: %w", err)
 		}
 	}

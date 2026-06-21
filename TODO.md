@@ -254,16 +254,16 @@
 
 ### 阶段 P — 依赖与绑定
 - [x] **P-1 Go/依赖接入**：go.mod 升 go 1.25（去掉 toolchain 行，GOTOOLCHAIN=auto 自动拉 go1.25.0）；加开发期 `replace go.fd.io/govpp => 本地 govpp 源`。`GOOS=linux go build/test` 通过、netcfg.linux 在 go1.25 下构建成功。（require 行在 V0-5 首次 import 后由 go mod tidy 落入）
-- [~] **P-2 binapi 绑定（决策已定）**：直接用 govpp 自带 binapi（经本地 replace，当前 25.10），**不 vendor、不预重生成**；V0-5 对全部用到的包跑 CheckCompatiblity，仅当某模块 CRC 不匹配 26.02 时才从容器 `/usr/share/vpp/api` 重生成。已验 interface 包兼容
+- [x] **P-2 binapi 绑定（已定+已验证）**：直接用 govpp 自带 binapi（经本地 replace，当前 25.10），**不 vendor、不预重生成**；V0-5 对全部用到的包跑 CheckCompatiblity，仅当某模块 CRC 不匹配 26.02 时才从容器 `/usr/share/vpp/api` 重生成。已验**全部用到的包**（interface/ip/l2/vxlan/af_packet/tapv2/bond）对 26.02 CRC 兼容，无需重生成
 - [x] **P-3 CI 影响**：CI 已用 `go-version-file: go.mod`（P2-4 时改），自动按 go.mod 取 1.25.0，无需改 workflow（下次 CI 运行验证）
 
 ### 阶段 V0 — 脚手架（编译 + 连接冒烟）
 - [x] **V0-1 config schema**：顶层 `Network.VPP`（api-socket/reconnect/startup{main-core/workers/corelist/hugepages/dpdk{uio-driver/dev}}）；设备级 `VPPDevice`（mode/host-if/pci/rx-queues/tx-queues/num-rx-desc/num-tx-desc/host-ns/socket/id/role/ring-size/bd-id），加到 Ethernet/Bridge 等含 `vpp:` 的设备
 - [x] **V0-2 设备归属**：`isVPPManaged(cfg)`（有 vpp 块 或 renderer 解析为 vpp）；renderer 继承（设备级>全局）
 - [x] **V0-3 互斥/合法性校验**：同名设备不得跨内核/VPP；dpdk/avf 必填 pci；mode 枚举校验；解析期报错不静默
-- [ ] **V0-4 Applier 抽象**：定义 applier 接口；现有 netlink 逻辑归 KernelApplier（最小重构）；apply 主流程按设备分流到 Kernel/VPP
-- [ ] **V0-5 VPP applier 骨架**：`netlink/vpp`(新包) 连接 `api-socket`（socketclient）+ 全用到包 `CheckCompatiblity` + 优雅断开；连不上/不兼容明确报错
-- [ ] **V0 验收**：`GOOS=linux go build/vet` 通过；`netcfg apply` 对纯 VPP 配置能连上容器内 VPP 并通过兼容性自检（不下发流量）
+- [x] **V0-4 Applier 抽象**：定义 applier 接口；现有 netlink 逻辑归 KernelApplier（最小重构）；apply 主流程按设备分流到 Kernel/VPP
+- [x] **V0-5 VPP applier 骨架**：`netlink/vpp`(新包) 连接 `api-socket`（socketclient）+ 全用到包 `CheckCompatiblity` + 优雅断开；连不上/不兼容明确报错
+- [x] **V0 验收**：`GOOS=linux go build/vet` 通过；`netcfg apply` 对纯 VPP 配置能连上容器内 VPP 并通过兼容性自检（不下发流量）
 
 ### 阶段 V1a — af-packet L3 端到端
 - [ ] **V1a-1 接口创建**：af-packet（AfPacketCreateV3，host-if 默认设备名）+ loopback（CreateLoopback）；幂等（已存在则复用 sw_if_index）
