@@ -19,8 +19,8 @@ import (
 
 	govppapi "go.fd.io/govpp/api"
 	af_packet "go.fd.io/govpp/binapi/af_packet"
-	"go.fd.io/govpp/binapi/avf"
 	"go.fd.io/govpp/binapi/bond"
+	"go.fd.io/govpp/binapi/dev"
 	"go.fd.io/govpp/binapi/ethernet_types"
 	"go.fd.io/govpp/binapi/fib_types"
 	interfaces "go.fd.io/govpp/binapi/interface"
@@ -39,7 +39,7 @@ type Applier struct {
 	l2c   l2.RPCService
 	bondc bond.RPCService
 	vxc   vxlan.RPCService
-	avfc  avf.RPCService
+	devc  dev.RPCService      // VPP 设备框架（26.02 用于 iavf 等原生驱动）
 	conn  govppapi.Connection // 供 NAT 等子模块按需创建 service client
 
 	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
@@ -57,7 +57,7 @@ func NewApplier(c *Client) *Applier {
 		l2c:   l2.NewServiceClient(conn),
 		bondc: bond.NewServiceClient(conn),
 		vxc:   vxlan.NewServiceClient(conn),
-		avfc:  avf.NewServiceClient(conn),
+		devc:  dev.NewServiceClient(conn),
 		idx:   map[string]interface_types.InterfaceIndex{},
 	}
 }
@@ -83,39 +83,39 @@ func (a *Applier) findByName(ctx context.Context, name string) (interface_types.
 	return 0, false, nil
 }
 
-// parsePCI 把 "0000:03:02.0" 转成 VPP vlib_pci_addr_t 的 u32 编码
-// （domain<<16 | bus<<8 | slot<<3 | function）。
-func parsePCI(s string) (uint32, error) {
-	var domain, bus, slot, fn uint32
-	if _, err := fmt.Sscanf(s, "%x:%x:%x.%x", &domain, &bus, &slot, &fn); err != nil {
-		return 0, fmt.Errorf("invalid pci address %q: %w", s, err)
-	}
-	return domain<<16 | bus<<8 | (slot&0x1f)<<3 | (fn & 0x7), nil
-}
-
-// ensureAvf 用 avf 原生驱动接管 Intel VF（运行态，免 DPDK）。
+// ensureAvf 用原生驱动 iavf 接管 Intel VF（免 DPDK）。VPP 26.02 起经新设备框架
+// （dev）：dev_attach(driver=iavf) + dev_create_port_if（旧 avf_create 已废弃）。
 func (a *Applier) ensureAvf(ctx context.Context, name, pci string) (interface_types.InterfaceIndex, error) {
 	if idx, ok, err := a.resolve(ctx, name); err != nil {
 		return 0, err
 	} else if ok {
 		return idx, nil
 	}
-	addr, err := parsePCI(pci)
-	if err != nil {
-		return 0, err
-	}
-	rep, err := a.avfc.AvfCreate(ctx, &avf.AvfCreate{PciAddr: addr})
+	att, err := a.devc.DevAttach(ctx, &dev.DevAttach{DeviceID: "pci/" + pci, DriverName: "iavf"})
 	if err != nil {
 		if strings.Contains(err.Error(), "unknown message") {
-			return 0, fmt.Errorf("avf %s: avf binding mismatches running VPP — regenerate avf binapi for the target VPP version: %w", name, err)
+			return 0, fmt.Errorf("avf %s: VPP dev-framework binding mismatch — regenerate dev binapi for the target VPP: %w", name, err)
 		}
-		return 0, fmt.Errorf("avf create %s (pci %s): %w", name, pci, err)
+		return 0, fmt.Errorf("dev attach %s (pci %s, iavf): %w", name, pci, err)
 	}
-	if err := a.tagInterface(ctx, rep.SwIfIndex, name); err != nil {
+	if att.Retval != 0 {
+		return 0, fmt.Errorf("dev attach %s failed: %s", name, att.ErrorString)
+	}
+	rep, err := a.devc.DevCreatePortIf(ctx, &dev.DevCreatePortIf{
+		DevIndex: att.DevIndex, IntfName: name, NumRxQueues: 1, NumTxQueues: 1, PortID: 0,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("dev create port-if %s: %w", name, err)
+	}
+	if rep.Retval != 0 {
+		return 0, fmt.Errorf("dev create port-if %s failed: %s", name, rep.ErrorString)
+	}
+	idx := interface_types.InterfaceIndex(rep.SwIfIndex)
+	if err := a.tagInterface(ctx, idx, name); err != nil {
 		slog.Warn("failed to tag vpp avf interface", "device", name, "error", err)
 	}
-	a.idx[name] = rep.SwIfIndex
-	return rep.SwIfIndex, nil
+	a.idx[name] = idx
+	return idx, nil
 }
 
 // ensureDpdk 复用 VPP 在启动期（按 startup.conf dpdk{dev{name}}）创建的接口。
