@@ -335,3 +335,56 @@ network:
 		t.Fatalf("br0 vpp block not parsed: %+v", br0)
 	}
 }
+
+func TestVPPManaged(t *testing.T) {
+	cases := []struct {
+		vpp      *VPPDevice
+		devR, gR string
+		want     bool
+	}{
+		{&VPPDevice{Mode: "af-packet"}, "", "", true}, // 有 vpp 块
+		{nil, "vpp", "", true},                        // 设备级 renderer
+		{nil, "", "vpp", true},                        // 全局 renderer 继承
+		{nil, "networkd", "vpp", false},               // 设备级覆盖回内核
+		{nil, "", "", false},                          // 默认内核
+		{nil, "", "networkd", false},
+	}
+	for i, c := range cases {
+		if got := VPPManaged(c.vpp, c.devR, c.gR); got != c.want {
+			t.Errorf("case %d: VPPManaged=%v want %v", i, got, c.want)
+		}
+	}
+}
+
+func TestValidateVPP(t *testing.T) {
+	// dpdk 缺 pci → 报错
+	bad := &Config{Network: Network{Ethernets: map[string]*Ethernet{
+		"vf0": {VPP: &VPPDevice{Mode: "dpdk"}},
+	}}}
+	if err := ValidateVPP(bad); err == nil {
+		t.Fatal("expected error for dpdk without pci")
+	}
+	// 未知 mode → 报错
+	badMode := &Config{Network: Network{Ethernets: map[string]*Ethernet{
+		"x": {VPP: &VPPDevice{Mode: "bogus"}},
+	}}}
+	if err := ValidateVPP(badMode); err == nil {
+		t.Fatal("expected error for unknown mode")
+	}
+	// pci 重复占用 → 报错
+	dupPCI := &Config{Network: Network{Ethernets: map[string]*Ethernet{
+		"a": {VPP: &VPPDevice{Mode: "dpdk", PCI: "0000:03:02.0"}},
+		"b": {VPP: &VPPDevice{Mode: "dpdk", PCI: "0000:03:02.0"}},
+	}}}
+	if err := ValidateVPP(dupPCI); err == nil {
+		t.Fatal("expected error for duplicate pci")
+	}
+	// 合法配置 → 通过
+	ok := &Config{Network: Network{Renderer: "vpp", Ethernets: map[string]*Ethernet{
+		"eth0": {VPP: &VPPDevice{Mode: "af-packet", HostIf: "eth0"}},
+		"vf0":  {VPP: &VPPDevice{Mode: "dpdk", PCI: "0000:03:02.0"}},
+	}}}
+	if err := ValidateVPP(ok); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+}

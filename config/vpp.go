@@ -1,0 +1,131 @@
+/*
+Copyright © 2024 netcfg authors
+
+VPP 后端的设备归属判定与配置校验（做法 A）。见 docs/vpp-backend-design.md。
+*/
+
+package config
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// vppModes 是 VPP 设备 mode 的合法取值（空 = 默认 af-packet）。
+var vppModes = map[string]bool{
+	"":          true,
+	"af-packet": true,
+	"dpdk":      true,
+	"avf":       true,
+	"rdma":      true,
+	"tap":       true,
+	"loopback":  true,
+	"memif":     true,
+}
+
+// VPPManaged 判断一个设备是否归 VPP 管（做法 A）：
+//   - 带 vpp: 子块；或
+//   - 生效 renderer 为 vpp（设备级 > 全局，netplan 继承）。
+//
+// deviceVPP 为设备的 *VPPDevice（可 nil），deviceRenderer 为设备级 renderer，
+// globalRenderer 为 network.renderer。
+func VPPManaged(deviceVPP *VPPDevice, deviceRenderer, globalRenderer string) bool {
+	if deviceVPP != nil {
+		return true
+	}
+	r := deviceRenderer
+	if r == "" {
+		r = globalRenderer
+	}
+	return strings.EqualFold(r, "vpp")
+}
+
+// ValidateVPPDevice 校验单个设备的 vpp: 子块。
+func ValidateVPPDevice(name string, d *VPPDevice) error {
+	if d == nil {
+		return nil
+	}
+	m := strings.ToLower(d.Mode)
+	if !vppModes[m] {
+		return fmt.Errorf("vpp device %q: unknown mode %q (want af-packet/dpdk/avf/rdma/tap/loopback/memif)", name, d.Mode)
+	}
+	if (m == "dpdk" || m == "avf") && d.PCI == "" {
+		return fmt.Errorf("vpp device %q: mode %q requires 'pci'", name, m)
+	}
+	if m == "memif" && d.Socket == "" {
+		return fmt.Errorf("vpp device %q: mode memif requires 'socket'", name)
+	}
+	if d.Role != "" && d.Role != "master" && d.Role != "slave" {
+		return fmt.Errorf("vpp device %q: invalid role %q (want master/slave)", name, d.Role)
+	}
+	return nil
+}
+
+// ValidateVPP 校验整份配置里的 VPP 设备：mode/pci 合法性，以及 pci/host-if 不重复
+// 占用（同一物理资源不能给两个 VPP 接口）。default namespace 范围（netns×VPP 为边界，
+// 首版不处理）。
+func ValidateVPP(cfg *Config) error {
+	n := &cfg.Network
+	g := n.Renderer
+
+	type devVPP struct {
+		name     string
+		renderer string
+		vpp      *VPPDevice
+	}
+	var devs []devVPP
+	for name, e := range n.Ethernets {
+		if e != nil {
+			devs = append(devs, devVPP{name, e.Renderer, e.VPP})
+		}
+	}
+	for name, b := range n.Bridges {
+		if b != nil {
+			devs = append(devs, devVPP{name, b.Renderer, b.VPP})
+		}
+	}
+	for name, b := range n.Bonds {
+		if b != nil {
+			devs = append(devs, devVPP{name, b.Renderer, b.VPP})
+		}
+	}
+	for name, v := range n.Vlans {
+		if v != nil {
+			devs = append(devs, devVPP{name, v.Renderer, v.VPP})
+		}
+	}
+	for name, t := range n.Tunnels {
+		if t != nil {
+			devs = append(devs, devVPP{name, t.Renderer, t.VPP})
+		}
+	}
+	sort.Slice(devs, func(i, j int) bool { return devs[i].name < devs[j].name })
+
+	pciOwner := map[string]string{}    // pci -> device
+	hostIfOwner := map[string]string{} // host-if -> device
+	for _, d := range devs {
+		if !VPPManaged(d.vpp, d.renderer, g) {
+			continue
+		}
+		if err := ValidateVPPDevice(d.name, d.vpp); err != nil {
+			return err
+		}
+		if d.vpp == nil {
+			continue
+		}
+		if d.vpp.PCI != "" {
+			if owner, ok := pciOwner[d.vpp.PCI]; ok {
+				return fmt.Errorf("vpp: pci %s claimed by both %q and %q", d.vpp.PCI, owner, d.name)
+			}
+			pciOwner[d.vpp.PCI] = d.name
+		}
+		if d.vpp.HostIf != "" {
+			if owner, ok := hostIfOwner[d.vpp.HostIf]; ok {
+				return fmt.Errorf("vpp: host-if %s claimed by both %q and %q", d.vpp.HostIf, owner, d.name)
+			}
+			hostIfOwner[d.vpp.HostIf] = d.name
+		}
+	}
+	return nil
+}

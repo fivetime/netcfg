@@ -847,6 +847,11 @@ func LoadConfig(dirPath string) (*Config, error) {
 		mergeConfig(merged, &cfg)
 	}
 
+	// VPP 设备合法性校验（合并后整体校验：mode/pci、pci/host-if 不重复占用）
+	if err := ValidateVPP(merged); err != nil {
+		return nil, err
+	}
+
 	return merged, nil
 }
 
