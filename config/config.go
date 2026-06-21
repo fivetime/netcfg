@@ -419,11 +419,30 @@ type Tunnel struct {
 	Mark  int                    `yaml:"mark,omitempty"`  // fwmark
 	Peers []*TunnelWireguardPeer `yaml:"peers,omitempty"` // WireGuard peers
 
-	// mode=vxlan 专用（netplan 标准 tunnels:mode:vxlan）
-	ID            int    `yaml:"id,omitempty"`           // VXLAN VNI
-	Link          string `yaml:"link,omitempty"`         // 底层设备
-	MacLearning   *bool  `yaml:"mac-learning,omitempty"` // MAC 学习
-	NeighSuppress *bool  `yaml:"neigh-suppress,omitempty"`
+	// mode=vxlan 专用（netplan 标准 tunnels:mode:vxlan）。
+	// fdb/neighbors/l2miss/l3miss/external 等为 netcfg EVPN 扩展（netplan 无对应语法）。
+	ID             int           `yaml:"id,omitempty"`   // VXLAN VNI
+	Link           string        `yaml:"link,omitempty"` // 底层设备
+	Group          string        `yaml:"group,omitempty"`
+	DestPort       int           `yaml:"dest-port,omitempty"`
+	PortRange      []int         `yaml:"port-range,omitempty"`
+	MacLearning    *bool         `yaml:"mac-learning,omitempty"`
+	NeighSuppress  *bool         `yaml:"neigh-suppress,omitempty"`
+	Ageing         int           `yaml:"ageing,omitempty"`
+	Limit          int           `yaml:"limit,omitempty"`
+	ARPProxy       *bool         `yaml:"arp-proxy,omitempty"`
+	L2miss         *bool         `yaml:"l2miss,omitempty"`
+	L3miss         *bool         `yaml:"l3miss,omitempty"`
+	RSC            *bool         `yaml:"rsc,omitempty"`
+	NoAge          bool          `yaml:"noage,omitempty"`
+	GBP            bool          `yaml:"gbp,omitempty"`
+	External       bool          `yaml:"external,omitempty"`
+	UDPChecksum    bool          `yaml:"udp-checksum,omitempty"`
+	UDP6ZeroCSumTx bool          `yaml:"udp6-zero-csum-tx,omitempty"`
+	UDP6ZeroCSumRx bool          `yaml:"udp6-zero-csum-rx,omitempty"`
+	MacAddress     string        `yaml:"macaddress,omitempty"`
+	FDB            []*FDBEntry   `yaml:"fdb,omitempty"`
+	Neighbors      []*NeighEntry `yaml:"neighbors,omitempty"`
 }
 
 // TunnelWireguardPeer netplan tunnels:mode:wireguard 的 peer（与自有 wireguards: 的
@@ -546,18 +565,36 @@ func normalizeTunnelVxlans(tunnels *map[string]*Tunnel, vxlans *map[string]*Vxla
 // toVxlan 把 netplan tunnels:mode:vxlan 条目转换为 Vxlan。
 func (t *Tunnel) toVxlan() *Vxlan {
 	return &Vxlan{
-		ID:            t.ID,
-		Link:          t.Link,
-		Local:         t.Local,
-		Remote:        t.Remote,
-		Port:          t.Port,
-		TTL:           t.TTL,
-		TOS:           t.TOS,
-		MTU:           t.MTU,
-		Learning:      t.MacLearning,
-		NeighSuppress: t.NeighSuppress,
-		Addresses:     t.Addresses,
-		Routes:        t.Routes,
+		ID:             t.ID,
+		Link:           t.Link,
+		Local:          t.Local,
+		Remote:         t.Remote,
+		Group:          t.Group,
+		Port:           t.Port,
+		DestPort:       t.DestPort,
+		PortRange:      t.PortRange,
+		TTL:            t.TTL,
+		TOS:            t.TOS,
+		Ageing:         t.Ageing,
+		Limit:          t.Limit,
+		Learning:       t.MacLearning,
+		ARPProxy:       t.ARPProxy,
+		NeighSuppress:  t.NeighSuppress,
+		L2miss:         t.L2miss,
+		L3miss:         t.L3miss,
+		RSC:            t.RSC,
+		NoAge:          t.NoAge,
+		GBP:            t.GBP,
+		External:       t.External,
+		UDPChecksum:    t.UDPChecksum,
+		UDP6ZeroCSumTx: t.UDP6ZeroCSumTx,
+		UDP6ZeroCSumRx: t.UDP6ZeroCSumRx,
+		MTU:            t.MTU,
+		MacAddress:     t.MacAddress,
+		Addresses:      t.Addresses,
+		Routes:         t.Routes,
+		FDB:            t.FDB,
+		Neighbors:      t.Neighbors,
 	}
 }
 
