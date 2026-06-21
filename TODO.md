@@ -253,9 +253,9 @@
 环境就绪：`tests/vpp/` 镜像（VPP 26.02）+ 绑定链路已验证（GoVPP 连 api.sock、CreateLoopback 真实写通过）。
 
 ### 阶段 P — 依赖与绑定
-- [ ] **P-1 Go/依赖接入**：go.mod 升 go 1.25；加 `require go.fd.io/govpp` + 开发期 `replace => 本地 govpp 源`；`go build ./...` 通过
-- [ ] **P-2 binapi 绑定**：从 26.02 容器 `/usr/share/vpp/api` 重生成（或 vendor）需要的子包：interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/memif/ethernet_types。决定 vendor 还是依赖 govpp 自带 binapi
-- [ ] **P-3 CI 影响**：CI 用 `go-version-file: go.mod` → 自动升 1.25，确认 workflow 通过
+- [x] **P-1 Go/依赖接入**：go.mod 升 go 1.25（去掉 toolchain 行，GOTOOLCHAIN=auto 自动拉 go1.25.0）；加开发期 `replace go.fd.io/govpp => 本地 govpp 源`。`GOOS=linux go build/test` 通过、netcfg.linux 在 go1.25 下构建成功。（require 行在 V0-5 首次 import 后由 go mod tidy 落入）
+- [~] **P-2 binapi 绑定（决策已定）**：直接用 govpp 自带 binapi（经本地 replace，当前 25.10），**不 vendor、不预重生成**；V0-5 对全部用到的包跑 CheckCompatiblity，仅当某模块 CRC 不匹配 26.02 时才从容器 `/usr/share/vpp/api` 重生成。已验 interface 包兼容
+- [x] **P-3 CI 影响**：CI 已用 `go-version-file: go.mod`（P2-4 时改），自动按 go.mod 取 1.25.0，无需改 workflow（下次 CI 运行验证）
 
 ### 阶段 V0 — 脚手架（编译 + 连接冒烟）
 - [ ] **V0-1 config schema**：顶层 `Network.VPP`（api-socket/reconnect/startup{main-core/workers/corelist/hugepages/dpdk{uio-driver/dev}}）；设备级 `VPPDevice`（mode/host-if/pci/rx-queues/tx-queues/num-rx-desc/num-tx-desc/host-ns/socket/id/role/ring-size/bd-id），加到 Ethernet/Bridge 等含 `vpp:` 的设备
