@@ -228,9 +228,9 @@ netns:
 | Bridge | `bridges` | Software bridge |
 | Bond | `bonds` | Link aggregation |
 | VLAN | `vlans` | 802.1Q VLAN |
-| VXLAN | `vxlans` | Virtual extensible LAN (EVPN ready) |
+| VXLAN | `tunnels` (mode: vxlan) | Virtual extensible LAN (EVPN ready) |
 | Tunnel | `tunnels` | GRE/IPIP/SIT/VTI tunnels |
-| WireGuard | `wireguards` | WireGuard VPN |
+| WireGuard | `tunnels` (mode: wireguard) | WireGuard VPN |
 | VRF | `vrfs` | Virtual routing and forwarding |
 | TUN | `tun-devices` | TUN virtual device |
 | TAP | `tap-devices` | TAP virtual device |
@@ -275,9 +275,9 @@ netcfg 支持以下所有设备类型，在 default namespace 和自定义 netns
 | bridge | `bridges` | 软件网桥 |
 | bond | `bonds` | 链路聚合 |
 | vlan | `vlans` | 802.1Q VLAN |
-| vxlan | `vxlans` | VXLAN overlay (含 EVPN 支持) |
+| vxlan | `tunnels` (mode: vxlan) | VXLAN overlay (含 EVPN 支持) |
 | tunnel | `tunnels` | GRE/IPIP/SIT/VTI |
-| wireguard | `wireguards` | WireGuard VPN |
+| wireguard | `tunnels` (mode: wireguard) | WireGuard VPN |
 | vrf | `vrfs` | VRF 路由域 |
 | tun | `tun-devices` | TUN 虚拟设备 |
 | tap | `tap-devices` | TAP 虚拟设备 |
@@ -309,12 +309,13 @@ netcfg 提供完整的 VXLAN 支持，包括 EVPN 数据平面所需的全部功
 network:
   version: 2
   
-  vxlans:
+  tunnels:
     vxlan100:
+      mode: vxlan
       id: 100
       local: 10.0.0.1
       dest-port: 4789
-      learning: false           # EVPN 控制平面学习
+      mac-learning: false       # EVPN 控制平面学习
       neigh-suppress: true      # 本地响应 ARP
       l2miss: true              # 通知 FRR
       ageing: 300
@@ -337,13 +338,14 @@ network:
 ### external 模式 (OVS/OVN)
 
 ```yaml
-vxlans:
+tunnels:
   vxlan_sys:
+    mode: vxlan
     id: 0                # VNI 由 flow 规则动态设置
     external: true       # flow-based
     local: 10.0.0.1
     dest-port: 4789
-    learning: false
+    mac-learning: false
 ```
 
 ## cloud-init 集成
@@ -386,23 +388,26 @@ netcfg wg show wg0
 network:
   version: 2
   
-  wireguards:
+  tunnels:
     wg0:
+      mode: wireguard
       addresses:
         - 10.10.0.1/24
-      listen-port: 51820
-      private-key: "cGFzc3dvcmQxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ="  # Base64
+      port: 51820
+      key: "cGFzc3dvcmQxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ="  # Base64 私钥
       peers:
-        - public-key: "cHVibGljLWtleS1vZi1wZWVyLTEyMzQ1Njc4OTAxMjM="
+        - keys:
+            public: "cHVibGljLWtleS1vZi1wZWVyLTEyMzQ1Njc4OTAxMjM="
           endpoint: "peer.example.com:51820"
           allowed-ips:
             - 10.10.0.2/32
             - 192.168.1.0/24
-          persistent-keepalive: 25
-        - public-key: "cHVibGljLWtleS1vZi1wZWVyLTIyMjIyMjIyMjIyMjI="
+          keepalive: 25
+        - keys:
+            public: "cHVibGljLWtleS1vZi1wZWVyLTIyMjIyMjIyMjIyMjI="
+            shared: "cHJlc2hhcmVkLWtleS0xMjM0NTY3ODkwMTIzNDU2Nzg="
           allowed-ips:
             - 10.10.0.3/32
-          preshared-key: "cHJlc2hhcmVkLWtleS0xMjM0NTY3ODkwMTIzNDU2Nzg="
       routes:
         - to: 192.168.1.0/24
           via: 10.10.0.2
@@ -418,18 +423,21 @@ network:
     eth0:
       dhcp4: true
   
-  wireguards:
+  tunnels:
     wg0:
+      mode: wireguard
       addresses: [10.0.0.1/24]
-      listen-port: 51820
-      private-key: "YOUR_PRIVATE_KEY"
+      port: 51820
+      key: "YOUR_PRIVATE_KEY"
       peers:
         # 移动设备
-        - public-key: "MOBILE_PUBLIC_KEY"
+        - keys:
+            public: "MOBILE_PUBLIC_KEY"
           allowed-ips: [10.0.0.2/32]
-          persistent-keepalive: 25
+          keepalive: 25
         # 办公室网络
-        - public-key: "OFFICE_PUBLIC_KEY"
+        - keys:
+            public: "OFFICE_PUBLIC_KEY"
           endpoint: "office.example.com:51820"
           allowed-ips: [10.0.0.3/32, 192.168.100.0/24]
 ```
@@ -456,22 +464,20 @@ network:
           interfaces: [veth0]
           addresses: [192.168.1.1/24]
       
-      vxlans:
+      tunnels:
         vxlan100:
+          mode: vxlan
           id: 100
           local: 10.0.0.1
           remote: 10.0.0.2
           addresses: [192.168.100.1/24]
-      
-      tunnels:
         gre0:
           mode: gre
           local: 10.0.0.1
           remote: 10.0.0.2
           addresses: [172.16.0.1/30]
-      
-      wireguards:
         wg0:
+          mode: wireguard
           addresses: [10.10.0.1/24]
-          listen-port: 51820
+          port: 51820
 ```

@@ -218,12 +218,13 @@ network:
     eth0:
       addresses: [10.0.0.1/24]
   
-  vxlans:
+  tunnels:
     vxlan100:
+      mode: vxlan
       id: 100
       local: 10.0.0.1
       port: 4789
-      learning: false
+      mac-learning: false
       l2miss: true
       l3miss: true
   
@@ -252,13 +253,11 @@ network:
         veth-b:
           addresses: [10.2.0.1/24]
   
-  veths:
+  virtual-ethernets:
     veth-a:
-      peer:
-        name: veth-a-br
+      peer: veth-a-br
     veth-b:
-      peer:
-        name: veth-b-br
+      peer: veth-b-br
 ```
 
 ### 3. WireGuard VPN 网关
@@ -267,16 +266,18 @@ network:
 network:
   version: 2
   
-  wireguards:
+  tunnels:
     wg0:
+      mode: wireguard
       addresses: [10.10.0.1/24]
-      listen-port: 51820
-      private-key: "BASE64_PRIVATE_KEY"
+      port: 51820
+      key: "BASE64_PRIVATE_KEY"
       peers:
-        - public-key: "PEER_PUBLIC_KEY"
+        - keys:
+            public: "PEER_PUBLIC_KEY"
           allowed-ips: [10.10.0.0/24, 192.168.0.0/16]
           endpoint: "vpn.example.com:51820"
-          persistent-keepalive: 25
+          keepalive: 25
 ```
 
 ### 4. Kubernetes 节点网络
