@@ -174,6 +174,7 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 
 	a := vpp.NewApplier(c)
 	ctx := context.Background()
+	prev := vpp.LoadState() // 上次 apply 创建的 VPP 设备（用于回收孤儿）
 
 	// 依赖顺序：ethernet → bond（成员=ethernet）→ vlan（父=ethernet/bond）
 	// → vxlan → bridge（成员=任意，须最后）。
@@ -205,5 +206,76 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 			slog.Error("vpp apply bridge failed", "device", name, "error", err)
 		}
 	}
+
+	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备（孤儿）。
+	desired := buildDesiredVPPState(v)
+	reapVPPOrphans(ctx, a, prev, desired)
+	if err := desired.Save(); err != nil {
+		slog.Warn("failed to save VPP state", "error", err)
+	}
 	return nil
+}
+
+// buildDesiredVPPState 从本次 VPP 设备集合构造期望状态（用于下次回收对比）。
+func buildDesiredVPPState(v *vppSet) *vpp.State {
+	s := vpp.NewState()
+	for name, e := range v.ethernets {
+		mode := "af-packet"
+		hostif := name
+		if e.VPP != nil {
+			if e.VPP.Mode != "" {
+				mode = strings.ToLower(e.VPP.Mode)
+			}
+			if e.VPP.HostIf != "" {
+				hostif = e.VPP.HostIf
+			}
+		}
+		di := vpp.DevInfo{Type: mode}
+		if mode == "af-packet" {
+			di.HostIf = hostif
+		}
+		s.Devices[name] = di
+	}
+	for name := range v.bonds {
+		s.Devices[name] = vpp.DevInfo{Type: "bond"}
+	}
+	for name := range v.vlans {
+		s.Devices[name] = vpp.DevInfo{Type: "vlan"}
+	}
+	for name, vx := range v.vxlans {
+		port := vx.DestPort
+		if port == 0 {
+			port = vx.Port
+		}
+		s.Devices[name] = vpp.DevInfo{Type: "vxlan", Vni: uint32(vx.ID), Local: vx.Local, Remote: vx.Remote, Port: port}
+	}
+	for name, b := range v.bridges {
+		bd := vpp.AutoBdID(name)
+		if b.VPP != nil && b.VPP.BdID > 0 {
+			bd = uint32(b.VPP.BdID)
+		}
+		s.Devices[name] = vpp.DevInfo{Type: "bridge", BdID: bd}
+		if len(b.Addresses) > 0 {
+			s.Devices[name+"-bvi"] = vpp.DevInfo{Type: "loopback"} // 带地址 bridge 的 BVI
+		}
+	}
+	return s
+}
+
+// reapVPPOrphans 删除 prev 中有、desired 中无的 VPP 设备，按反依赖顺序。
+func reapVPPOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.State) {
+	// 先删成员/接口，最后删 bridge domain（BD 仍含成员时无法删除）。
+	order := []string{"vxlan", "vlan", "bond", "loopback", "af-packet", "dpdk", "avf", "bridge"}
+	for _, typ := range order {
+		for name, info := range prev.Devices {
+			if _, ok := desired.Devices[name]; ok || info.Type != typ {
+				continue
+			}
+			if err := a.Delete(ctx, name, info); err != nil {
+				slog.Warn("vpp reap orphan failed", "device", name, "type", info.Type, "error", err)
+			} else {
+				slog.Info("vpp removed orphan device", "device", name, "type", info.Type)
+			}
+		}
+	}
 }

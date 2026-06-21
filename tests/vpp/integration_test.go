@@ -181,3 +181,32 @@ network:
 	apply(t, cfg)
 	mustContain(t, vppctl(t, "show", "interface", "addr"), "10.30.0.1/24", "address after re-apply")
 }
+
+func mustNotContain(t *testing.T, haystack, needle, what string) {
+	t.Helper()
+	if strings.Contains(haystack, needle) {
+		t.Fatalf("%s: did not expect %q in:\n%s", what, needle, haystack)
+	}
+}
+
+func TestReapOrphan(t *testing.T) {
+	// 先创建一个带唯一地址的 loopback
+	apply(t, `
+network:
+  version: 2
+  renderer: vpp
+  ethernets:
+    veth1: { addresses: [10.40.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+    lo-reap: { addresses: [10.88.0.1/32], vpp: { mode: loopback } }
+`)
+	mustContain(t, vppctl(t, "show", "interface", "addr"), "10.88.0.1/32", "loopback before reap")
+	// 再 apply 去掉 lo-reap → 应从 VPP 移除
+	apply(t, `
+network:
+  version: 2
+  renderer: vpp
+  ethernets:
+    veth1: { addresses: [10.40.0.1/24], vpp: { mode: af-packet, host-if: veth1 } }
+`)
+	mustNotContain(t, vppctl(t, "show", "interface", "addr"), "10.88.0.1/32", "loopback after reap (orphan removed)")
+}

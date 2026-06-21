@@ -11,7 +11,6 @@ package vpp
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"strings"
@@ -563,7 +562,7 @@ func (a *Applier) ApplyVxlan(ctx context.Context, name string, vx *config.Vxlan)
 
 // ApplyBridge 创建（或复用）bridge domain、加入成员；带地址时建 BVI loopback 承载 L3。
 func (a *Applier) ApplyBridge(ctx context.Context, name string, b *config.Bridge) error {
-	bdID := autoBdID(name)
+	bdID := AutoBdID(name)
 	if b.VPP != nil && b.VPP.BdID > 0 {
 		bdID = uint32(b.VPP.BdID)
 	}
@@ -604,11 +603,55 @@ func (a *Applier) ApplyBridge(ctx context.Context, name string, b *config.Bridge
 	return nil
 }
 
-// autoBdID 从 bridge 名派生确定性 bridge-domain id（1..16M），跨 apply 稳定。
-func autoBdID(name string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(name))
-	return h.Sum32()%16_000_000 + 1
+// Delete 从 VPP 移除一个孤儿设备（按记录的类型分派）。
+func (a *Applier) Delete(ctx context.Context, name string, info DevInfo) error {
+	switch info.Type {
+	case "af-packet":
+		if info.HostIf == "" {
+			return nil
+		}
+		_, err := a.afp.AfPacketDelete(ctx, &af_packet.AfPacketDelete{HostIfName: info.HostIf})
+		return err
+	case "loopback":
+		idx, ok, err := a.findByTag(ctx, name)
+		if err != nil || !ok {
+			return err
+		}
+		_, err = a.intf.DeleteLoopback(ctx, &interfaces.DeleteLoopback{SwIfIndex: idx})
+		return err
+	case "bond":
+		idx, ok, err := a.findByTag(ctx, name)
+		if err != nil || !ok {
+			return err
+		}
+		_, err = a.bondc.BondDelete(ctx, &bond.BondDelete{SwIfIndex: idx})
+		return err
+	case "vlan":
+		idx, ok, err := a.findByTag(ctx, name)
+		if err != nil || !ok {
+			return err
+		}
+		_, err = a.intf.DeleteSubif(ctx, &interfaces.DeleteSubif{SwIfIndex: idx})
+		return err
+	case "vxlan":
+		src, _ := ip_types.ParseAddress(info.Local)
+		dst, _ := ip_types.ParseAddress(info.Remote)
+		port := uint16(4789)
+		if info.Port > 0 {
+			port = uint16(info.Port)
+		}
+		_, err := a.vxc.VxlanAddDelTunnelV3(ctx, &vxlan.VxlanAddDelTunnelV3{
+			IsAdd: false, SrcAddress: src, DstAddress: dst, Vni: info.Vni, DstPort: port,
+		})
+		return err
+	case "bridge":
+		_, err := a.l2c.BridgeDomainAddDel(ctx, &l2.BridgeDomainAddDel{BdID: info.BdID, IsAdd: false})
+		return err
+	case "dpdk", "avf":
+		// 独占接口由 startup.conf/硬件管理，运行态不删（移除需改 startup.conf 重启 VPP）
+		return nil
+	}
+	return nil
 }
 
 // vppPCI 取设备 vpp 块的 PCI（avf/dpdk 用）。

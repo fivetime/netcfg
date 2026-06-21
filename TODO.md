@@ -290,9 +290,9 @@
 - [~] **V1c 验收**（startup.conf 生成 + dpdk/avf 优雅降级已容器验证；dpdk/avf/SR-IOV 运行态需真机 PCI/VF）：真机或带 VF 环境（容器无法完整验证，标注）
 
 ### 阶段 S — 状态与持久化
-- [ ] **S-1 VPP 侧 state**：apply 后记录 VPP 已创建对象；与 state.go 统一或独立 vpp state
-- [ ] **S-2 增量 diff**：再次 apply 删除配置中已移除的 VPP 对象（孤儿回收：接口/地址/路由/bd/bond/vxlan）
-- [ ] **S-3 持久化**：确认开机 init 调 `netcfg apply` 经 API 重放即可（无需 unix{exec}）；文档说明
+- [x] **S-1 VPP 侧 state**：apply 后记录 VPP 已创建对象；与 state.go 统一或独立 vpp state
+- [x] **S-2 增量 diff**：再次 apply 删除配置中已移除的 VPP 对象（孤儿回收：接口/地址/路由/bd/bond/vxlan）
+- [x] **S-3 持久化**（init 调 apply 经 API 重放，无需 unix{exec}；文档已说明）：确认开机 init 调 `netcfg apply` 经 API 重放即可（无需 unix{exec}）；文档说明
 
 ### 阶段 T/D — 测试与文档
 - [x] **T-1 集成测试**：`tests/vpp/`（仿 integration_test.go）——apply 后用 GoVPP dump 或 vppctl 断言 VPP 状态；用 netcfg-vpp 镜像
