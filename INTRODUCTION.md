@@ -76,8 +76,8 @@
 | **ipvlan** | ✅ | IPVLAN (L2/L3/L3S) |
 | **tun** | ✅ | TUN 设备 |
 | **tap** | ✅ | TAP 设备 |
-| **wifi** | ⏳ | 无线网络（计划中） |
-| **modems** | ⏳ | 调制解调器（计划中） |
+| **wifi** | ✅ | 无线网络（生成 wpa_supplicant 配置 + 直接 spawn，init-agnostic） |
+| **modems** | ⏳ | 调制解调器（需 ModemManager，未实现） |
 
 ### 网络命名空间支持
 
@@ -136,8 +136,11 @@
 | 策略路由 | ✅ | 基于源/目标/标记的路由（含 VRF 级，见 TODO P0-7） |
 | 路由表 | ✅ | 多路由表支持 |
 | 默认路由 | ✅ | 网关配置 |
-| 链路本地 | ✅ | IPv6 link-local（addr_gen_mode）；IPv4 LL 未支持，见 TODO P0-5 |
-| IPv6 隐私扩展 | ✅ | ipv6-privacy（use_tempaddr，见 TODO P0-6） |
+| 链路本地 | ✅ | IPv6 link-local（addr_gen_mode）；IPv4 LL 未支持 |
+| IPv6 隐私扩展 | ✅ | ipv6-privacy（use_tempaddr） |
+| DHCP overrides | ✅ | use-dns/use-mtu/use-routes/route-metric/use-domains、send-hostname/hostname、dhcp-identifier(mac/duid) |
+| 地址 lifetime/label | ✅ | addresses[].lifetime（0/forever）、addresses[].label |
+| IPv6 地址生成 | ✅ | ipv6-address-generation（eui64/stable-privacy）、ipv6-address-token |
 
 ### 高级网络功能
 
@@ -146,11 +149,20 @@
 | MTU 配置 | ✅ | 最大传输单元 |
 | MAC 地址 | ✅ | 自定义硬件地址 |
 | 混杂模式 | ⏳ | promiscuous mode（未实现） |
-| Wake-on-LAN | ✅ | 远程唤醒（ethtool wol，见 TODO P2-6） |
+| Wake-on-LAN | ✅ | 远程唤醒（ethtool wol） |
 | 链路检测 | ✅ | carrier/dormant 状态（status 显示） |
-| optional 标记 | ✅ | 设备可选，不阻塞启动（status --wait，见 TODO P0-5） |
-| DNS 配置 | ✅ | nameservers/search domains（resolvectl/resolv.conf，见 TODO P0-4） |
-| 接口重命名 | ✅ | 基于 match (name/mac/driver) 规则，set-name（见 TODO P1-5） |
+| optional 标记 | ✅ | 设备可选，不阻塞启动（status --wait） |
+| DNS 配置 | ✅ | nameservers/search domains（resolvectl/resolv.conf） |
+| 接口重命名 | ✅ | 基于 match (name/mac/driver) 规则，set-name |
+| activation-mode | ✅ | manual/off：配置但不激活（off 强制 down） |
+| 802.1X / EAP（有线） | ✅ | auth 块 → 生成 wpa_supplicant 配置并直接 spawn（init-agnostic） |
+| WiFi access-points | ✅ | PSK/SAE(WPA3)/EAP 企业/开放、mode/band/channel/bssid/hidden、regulatory-domain |
+| 网卡 offload | ✅ | rx/tx-checksum、tso/tso6/gso/gro/lro（ethtool -K） |
+| SR-IOV | ✅ | virtual-function-count、embedded-switch-mode、`netcfg rebind`（VF 重绑） |
+| InfiniBand | ✅ | infiniband-mode（connected/datagram，IPoIB） |
+| bridge 端口属性 | ✅ | hairpin、neigh-suppress、port-mac-learning |
+| emit-lldp | ⏳ | 需 LLDP daemon（networkd-only），netcfg 不实现（显式告警） |
+| ignore-carrier / critical | ✅ | 直接 netlink 下发本就等价（不依赖 carrier、不随重启清配置） |
 
 ### 运维功能
 
@@ -180,6 +192,7 @@
 | `netcfg try [--timeout N]` | 试用配置，超时自动回滚 |
 | `netcfg daemon` | 启动 DHCP 守护进程 |
 | `netcfg destroy` | 删除配置的网络命名空间 |
+| `netcfg rebind [iface]` | 重绑 SR-IOV VF 到驱动 |
 | `netcfg netns list` | 列出网络命名空间 |
 | `netcfg netns create <name>` | 创建网络命名空间 |
 | `netcfg netns delete <name>` | 删除网络命名空间 |
@@ -205,7 +218,9 @@
 | 热重载 | ❌ | ✅ |
 | 单一二进制 | ❌ | ✅ |
 | cloud-init 集成 | ✅ | ✅ |
-| 后端依赖 | systemd-networkd/NM | 无 |
+| 后端依赖 | systemd-networkd/NM | 无（直接 netlink） |
+| init 系统 | 偏向 systemd | init-agnostic（systemd/OpenRC/runit…） |
+| 802.1x/WiFi | wpa_supplicant（经后端） | wpa_supplicant（直接 spawn，可选监督模板） |
 
 ## 典型应用场景
 

@@ -7,10 +7,14 @@ A network configuration tool compatible with netplan syntax, with native support
 - **Netplan Compatible**: Drop-in replacement for netplan, reads `/etc/netplan/*.yaml`
 - **Network Namespace Support**: Native netns creation and management
 - **Direct Netlink API**: No dependency on `ip` command, better performance and security
-- **Full Device Support**: ethernet, dummy, veth, macvlan, macvtap, ipvlan, bridge, bond, vlan, vxlan, vrf, tunnel, wireguard, tun, tap
+- **Full Device Support**: ethernet, wifi, dummy, veth, macvlan, macvtap, ipvlan, bridge, bond, vlan, vxlan, vrf, tunnel (incl. wireguard via `tunnels:mode`), tun, tap
 - **VXLAN/EVPN Ready**: Full VXLAN support including FDB management, ARP suppress, external mode
+- **WiFi & 802.1x**: Generates wpa_supplicant config and spawns it directly (init-agnostic) — PSK/SAE(WPA3)/EAP enterprise
+- **NIC tuning**: offload (ethtool), SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode
+- **Pure-Go DHCP**: Built-in DHCPv4/v6 client (falls back to external clients), with DHCP overrides
+- **init-agnostic**: No dependency on systemd-networkd or D-Bus; runs under systemd / OpenRC / runit / etc. Optional supervision templates in `init/`
 - **cloud-init Integration**: Works as cloud-init network renderer for VM/bare-metal automation
-- **DHCP Daemon**: Built-in lease renewal with systemd service
+- **DHCP Daemon**: Built-in lease renewal
 - **Cross-platform**: Linux only (uses kernel netlink API)
 
 ## Installation
@@ -219,7 +223,8 @@ netns:
 
 | Device Type | YAML Key | Description |
 |-------------|----------|-------------|
-| Ethernet | `ethernets` | Physical NICs |
+| Ethernet | `ethernets` | Physical NICs (offload, SR-IOV, 802.1x, Wake-on-LAN, InfiniBand) |
+| WiFi | `wifis` | Wireless (wpa_supplicant; PSK/SAE/EAP) |
 | Dummy | `dummy-devices` | Virtual loopback-like devices |
 | Veth | `veth-devices` | Virtual ethernet pairs |
 | Macvlan | `macvlan-devices` | MAC-based virtual LAN |
@@ -244,7 +249,9 @@ netns:
 | NetworkManager backend | ✅ | ❌ |
 | Network namespace | ❌ | ✅ |
 | Direct netlink API | ❌ | ✅ |
-| External command dependency | ip, networkctl | none |
+| init system | systemd-leaning | init-agnostic (systemd/OpenRC/runit/…) |
+| systemd-networkd / D-Bus dependency | required | none |
+| External command dependency | ip, networkctl | none for core (optional: ethtool/devlink for tuning, wpa_supplicant for wifi/802.1x) |
 
 ## Why netcfg?
 
@@ -266,7 +273,8 @@ netcfg 支持以下所有设备类型，在 default namespace 和自定义 netns
 
 | 设备类型 | 配置键 | 说明 |
 |----------|--------|------|
-| ethernet | `ethernets` | 物理网卡配置 |
+| ethernet | `ethernets` | 物理网卡（offload / SR-IOV / 802.1x / WoL / InfiniBand） |
+| wifi | `wifis` | 无线网络（wpa_supplicant；PSK/SAE/EAP） |
 | dummy | `dummy-devices` | 虚拟接口 |
 | veth | `veth-devices` | 虚拟以太网对 |
 | macvlan | `macvlan-devices` | MAC 虚拟化 |
