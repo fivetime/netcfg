@@ -34,8 +34,8 @@ var supportedNetworkKeys = map[string]bool{
 	"ethernets": true, "dummy-devices": true,
 	"virtual-ethernets": true, "veth-devices": true,
 	"macvlan-devices": true, "macvtap-devices": true, "ipvlan-devices": true,
-	"bridges": true, "bonds": true, "vlans": true, "vxlans": true,
-	"tunnels": true, "wireguards": true, "vrfs": true,
+	"bridges": true, "bonds": true, "vlans": true,
+	"tunnels": true, "vrfs": true,
 	"tun-devices": true, "tap-devices": true, "netns": true,
 }
 
@@ -94,9 +94,8 @@ type Network struct {
 	Bridges          map[string]*Bridge          `yaml:"bridges,omitempty"`
 	Bonds            map[string]*Bond            `yaml:"bonds,omitempty"`
 	Vlans            map[string]*Vlan            `yaml:"vlans,omitempty"`
-	Vxlans           map[string]*Vxlan           `yaml:"vxlans,omitempty"`
+	Vxlans           map[string]*Vxlan           `yaml:"-"` // 内部表示：tunnels:mode:vxlan 经 Normalize 填充
 	Tunnels          map[string]*Tunnel          `yaml:"tunnels,omitempty"`
-	Wireguards       map[string]*Wireguard       `yaml:"wireguards,omitempty"`
 	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
 	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
 	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
@@ -118,9 +117,8 @@ type Namespace struct {
 	Bridges          map[string]*Bridge          `yaml:"bridges,omitempty"`
 	Bonds            map[string]*Bond            `yaml:"bonds,omitempty"`
 	Vlans            map[string]*Vlan            `yaml:"vlans,omitempty"`
-	Vxlans           map[string]*Vxlan           `yaml:"vxlans,omitempty"`
+	Vxlans           map[string]*Vxlan           `yaml:"-"` // 内部表示：tunnels:mode:vxlan 经 Normalize 填充
 	Tunnels          map[string]*Tunnel          `yaml:"tunnels,omitempty"`
-	Wireguards       map[string]*Wireguard       `yaml:"wireguards,omitempty"`
 	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
 	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
 	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
@@ -451,25 +449,8 @@ type Vrf struct {
 	RoutingPolicy []*RoutingPolicy `yaml:"routing-policy,omitempty"`
 }
 
-// Wireguard WireGuard 配置
-type Wireguard struct {
-	Addresses  []Address        `yaml:"addresses,omitempty"`
-	MTU        int              `yaml:"mtu,omitempty"`
-	ListenPort int              `yaml:"listen-port,omitempty"`
-	PrivateKey string           `yaml:"private-key,omitempty"`
-	FwMark     int              `yaml:"fwmark,omitempty"`
-	Peers      []*WireguardPeer `yaml:"peers,omitempty"`
-	Routes     []*Route         `yaml:"routes,omitempty"`
-}
-
-// WireguardPeer WireGuard Peer 配置
-type WireguardPeer struct {
-	PublicKey           string   `yaml:"public-key"`
-	Endpoint            string   `yaml:"endpoint,omitempty"`
-	AllowedIPs          []string `yaml:"allowed-ips,omitempty"`
-	PresharedKey        string   `yaml:"preshared-key,omitempty"`
-	PersistentKeepalive int      `yaml:"persistent-keepalive,omitempty"`
-}
+// 注：WireGuard 配置遵循 netplan 标准 tunnels:mode:wireguard（见 Tunnel /
+// TunnelWireguardPeer），不再提供自造的顶层 wireguards: 键。
 
 // IpvlanDevice ipvlan 设备配置
 type IpvlanDevice struct {
@@ -595,7 +576,6 @@ func (c *Config) HasDefaultNamespaceConfig() bool {
 		len(n.Vlans) > 0 ||
 		len(n.Vxlans) > 0 ||
 		len(n.Tunnels) > 0 ||
-		len(n.Wireguards) > 0 ||
 		len(n.Vrfs) > 0 ||
 		len(n.TunDevices) > 0 ||
 		len(n.TapDevices) > 0
@@ -616,7 +596,6 @@ func (n *Network) ToNamespace() *Namespace {
 		Vlans:            n.Vlans,
 		Vxlans:           n.Vxlans,
 		Tunnels:          n.Tunnels,
-		Wireguards:       n.Wireguards,
 		Vrfs:             n.Vrfs,
 		TunDevices:       n.TunDevices,
 		TapDevices:       n.TapDevices,
@@ -668,7 +647,6 @@ func LoadConfig(dirPath string) (*Config, error) {
 			Vlans:            make(map[string]*Vlan),
 			Vxlans:           make(map[string]*Vxlan),
 			Tunnels:          make(map[string]*Tunnel),
-			Wireguards:       make(map[string]*Wireguard),
 			Vrfs:             make(map[string]*Vrf),
 			TunDevices:       make(map[string]*TunTapDevice),
 			TapDevices:       make(map[string]*TunTapDevice),
@@ -737,7 +715,6 @@ func mergeConfig(dst, src *Config) {
 	mergeMap(dst.Network.Vlans, src.Network.Vlans)
 	mergeMap(dst.Network.Vxlans, src.Network.Vxlans)
 	mergeMap(dst.Network.Tunnels, src.Network.Tunnels)
-	mergeMap(dst.Network.Wireguards, src.Network.Wireguards)
 	mergeMap(dst.Network.Vrfs, src.Network.Vrfs)
 	mergeMap(dst.Network.TunDevices, src.Network.TunDevices)
 	mergeMap(dst.Network.TapDevices, src.Network.TapDevices)
@@ -820,11 +797,6 @@ func mergeNamespace(dst, src *Namespace) {
 		dst.Tunnels = make(map[string]*Tunnel)
 	}
 	mergeMap(dst.Tunnels, src.Tunnels)
-
-	if dst.Wireguards == nil {
-		dst.Wireguards = make(map[string]*Wireguard)
-	}
-	mergeMap(dst.Wireguards, src.Wireguards)
 
 	if dst.Vrfs == nil {
 		dst.Vrfs = make(map[string]*Vrf)

@@ -206,15 +206,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 		}
 	}
 
-	// WireGuard
-	for name, cfg := range ns.Wireguards {
-		nsState.Devices[name] = &state.DeviceState{
-			Type:      "wireguard",
-			Addresses: addrStrings(cfg.Addresses),
-			Routes:    routesToStrings(cfg.Routes),
-			CreatedBy: "netcfg",
-		}
-	}
+	// 注：WireGuard 设备经 tunnels:mode:wireguard 处理，已在 Tunnels 循环中跟踪。
 
 	// Veth
 	for name, cfg := range ns.VethDevices {
@@ -510,10 +502,7 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 		return fmt.Errorf("failed to setup tunnels: %w", err)
 	}
 
-	// 8.6. WireGuard 设备
-	if err := setupWireguards(mgr, nsName, cfg.Wireguards); err != nil {
-		return fmt.Errorf("failed to setup wireguards: %w", err)
-	}
+	// 注：WireGuard 走 tunnels:mode:wireguard（见 setupTunnels），无独立步骤。
 
 	// 8.7. TUN/TAP 设备
 	if err := setupTunTapDevices(mgr, nsName, cfg.TunDevices, false); err != nil {
@@ -1699,81 +1688,6 @@ func configureTunnelWireguard(name, nsName string, cfg *config.Tunnel) error {
 		return nl.RunInNetns(nsName, do)
 	}
 	return do()
-}
-
-// setupWireguards 配置 WireGuard 设备
-func setupWireguards(mgr *nl.NetlinkManager, nsName string, devices map[string]*config.Wireguard) error {
-	names := sortedKeys(devices)
-
-	for _, name := range names {
-		cfg := devices[name]
-		slog.Debug("setting up wireguard", "name", name, "netns", nsName)
-
-		// 1. 创建 WireGuard 设备
-		if !mgr.LinkExists(name) {
-			slog.Info("creating wireguard device", "name", name)
-			if err := mgr.AddWireguard(name); err != nil {
-				return fmt.Errorf("failed to create wireguard %s: %w", name, err)
-			}
-		}
-
-		// 2. 配置 WireGuard (私钥、端口、peers)
-		if cfg.PrivateKey != "" || len(cfg.Peers) > 0 {
-			if err := configureWireguard(name, nsName, cfg); err != nil {
-				return fmt.Errorf("failed to configure wireguard %s: %w", name, err)
-			}
-		}
-
-		// 3. 配置 IP 地址和路由
-		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, ""); err != nil {
-			return fmt.Errorf("failed to setup wireguard %s: %w", name, err)
-		}
-	}
-
-	return nil
-}
-
-// configureWireguard 配置 WireGuard 密钥和 peers
-func configureWireguard(name, nsName string, cfg *config.Wireguard) error {
-	// 如果在 netns 中，需要在该 netns 中执行配置
-	if nsName != "" {
-		return nl.RunInNetns(nsName, func() error {
-			return doConfigureWireguard(name, cfg)
-		})
-	}
-	return doConfigureWireguard(name, cfg)
-}
-
-// doConfigureWireguard 实际执行 WireGuard 配置
-func doConfigureWireguard(name string, cfg *config.Wireguard) error {
-	wgMgr, err := nl.NewWireGuardManager()
-	if err != nil {
-		return fmt.Errorf("failed to create wireguard manager: %w", err)
-	}
-	defer wgMgr.Close()
-
-	// 构建 WireGuard 配置
-	wgCfg := &nl.WireGuardConfig{
-		PrivateKey:   cfg.PrivateKey,
-		ListenPort:   cfg.ListenPort,
-		FwMark:       cfg.FwMark,
-		ReplacePeers: true, // 替换所有 peers
-	}
-
-	// 添加 peers
-	for _, peer := range cfg.Peers {
-		wgPeer := &nl.WireGuardPeer{
-			PublicKey:                   peer.PublicKey,
-			PresharedKey:                peer.PresharedKey,
-			Endpoint:                    peer.Endpoint,
-			AllowedIPs:                  peer.AllowedIPs,
-			PersistentKeepaliveInterval: peer.PersistentKeepalive,
-		}
-		wgCfg.Peers = append(wgCfg.Peers, wgPeer)
-	}
-
-	slog.Info("configuring wireguard", "device", name, "listen-port", cfg.ListenPort, "peers", len(cfg.Peers))
-	return wgMgr.ConfigureDevice(name, wgCfg)
 }
 
 // setupTunTapDevices 配置 TUN/TAP 设备

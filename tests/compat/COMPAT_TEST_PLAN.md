@@ -84,8 +84,8 @@
 
 - **BUG-1**（A10 virtual-ethernet）：netplan 标准键 `virtual-ethernets:`（两端各为顶层条目、`peer:` 互相引用名字）netcfg 不识别，只支持自有的 `veth-devices:`（单条目嵌套 peer）。现象：veth 未创建，引用它的 bridge 加成员失败。修复：新增 `virtual-ethernets` schema（config）+ `setupVirtualEthernets`（从互引条目建 veth pair，done 去重）；并把它放到 bond/bridge **之前**创建（端点常作 bridge 成员，否则 enslave 失败）。`veth-devices` 作为跨 netns 扩展保留。状态：✅ 已修复并验证。
 - **BUG-2**（A12 wireguard）：netplan 把 WireGuard 表达为 `tunnels: mode: wireguard`（带 key/port/mark/peers），但 netcfg 的 `Tunnel` struct 无这些字段 → 仅建 wireguard 设备、未配密钥/peer（`wg show` 空）。修复：`Tunnel` 增加 wireguard 字段（port/mark/peers，key 复用为私钥）+ netplan peer 类型 `TunnelWireguardPeer`(keys.public/shared, keepalive)；`setupTunnels` 在 mode==wireguard 时经 `configureTunnelWireguard`→wgctrl 配置。验证：`wg show wg0` 显示公钥/端口/fwmark/peer/preshared/endpoint/allowed-ips 全部生效，两端已握手。状态：✅ 已修复并验证。
-  - 注：netcfg 自有顶层 `wireguards:` 是自造语法（netplan 用 tunnels:mode:wireguard），暂保留向后兼容，去留待用户决定（见对话）。
-- **BUG-3**（A9 vxlan）：netplan 用 `tunnels: mode: vxlan`，netcfg 自造顶层 `vxlans:` → 不识别 tunnels 里的 vxlan。修复：`Normalize` 把 `tunnels:mode:vxlan` 翻译进 Vxlans（含 Tunnel 增 id/link/mac-learning/neigh-suppress 字段 + toVxlan），使其在 bridge **之前**创建。✅ 已修复验证。`vxlans:` 自造键同 wireguards，去留待定。
+  - 已移除自造 `wireguards:` 顶层键，仅支持 netplan 标准 tunnels:mode:wireguard。
+- **BUG-3**（A9 vxlan）：netplan 用 `tunnels: mode: vxlan`，netcfg 自造顶层 `vxlans:` → 不识别 tunnels 里的 vxlan。修复：`Normalize` 把 `tunnels:mode:vxlan` 翻译进 Vxlans（含 Tunnel 增 id/link/mac-learning/neigh-suppress 字段 + toVxlan），使其在 bridge **之前**创建。✅ 已修复验证。`vxlans:`/`wireguards:` 自造顶层键已**移除**（用户决定：netplan 有对应写法即不自造）。vxlans 改为内部表示(yaml:"-")，wireguards 相关代码删除。
 - **BUG-4**（A5 bonding）：`SetBondSlave` 直接 LinkSetMaster，但内核要求成员先 down → "operation not permitted"。修复：down→enslave→up。✅
 - **BUG-5**（A8 vrf）：`AddRule` 的 from/to 用 net.ParseCIDR 拒绝裸主机 IP（netplan 允许）。修复：新增 `parseCIDROrIP`（裸 IP 按 /32 或 /128）。✅
 - **BUG-6**（A9 vxlan）：neigh-suppress 是 brport 属性，在 vxlan 加入 bridge 前设置必然失败。修复：移到 setupBridges 之后的 `applyVxlanNeighSuppress` 统一处理。✅
