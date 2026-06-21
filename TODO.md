@@ -244,6 +244,21 @@
 
 ---
 
+## 🟣 VPP 数据平面后端（新方向）
+
+> 设计文档 + 完整 schema：`docs/vpp-backend-design.md`（权威依据）。
+> 决策：做法 A（带 `vpp:` 块或 `renderer: vpp` → 走 VPP）；netplan 习惯优先；两种 NIC 模式（af-packet 共存 / dpdk 独占）；v1 做 L2/L3 全量；SR-IOV VF + bond 组合。
+> 目标 VPP：`fivetime/vpp` 26.02（GHCR `ghcr.io/fivetime/vpp:latest` 测试）。GoVPP `go.fd.io/govpp`（需 go 1.25 + 本地 replace；binapi 对 26.02 重生成）。
+
+- [ ] **V0 脚手架**：顶层+设备级 `vpp:` schema（config.go）；`Applier` 接口 + apply 设备分流；VPP applier 骨架（连接 + CheckCompatiblity）；归属/互斥校验。验收：编译 + 连 GHCR VPP 镜像冒烟
+- [ ] **V1a**：af-packet 接口 + loopback + 地址 + 路由（含默认网关）+ up/mtu/mac/activation-mode。容器端到端断言
+- [ ] **V1b**：VLAN sub-if + bridge domain(+BVI) + bond + vxlan
+- [ ] **V1c**：dpdk/avf 独占 + `startup.conf` 生成（NIC 绑定/hugepages/CPU）+ SR-IOV VF 链路
+- [ ] **测试**：`tests/vpp/`（仿 integration，apply 后用 GoVPP dump / vppctl 断言 VPP 状态）
+- 边界/未决：netns×VPP 交叉、bridge domain/BVI 自动管理与回收、VPP 侧 diff 与 state.go 统一、go 1.25 升级对 CI 影响
+
+---
+
 ## 🛠️ 工程化任务（M5，贯穿全程）
 
 - [~] **单元测试覆盖**：
