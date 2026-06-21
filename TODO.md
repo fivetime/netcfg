@@ -296,7 +296,7 @@
 
 ### 阶段 T/D — 测试与文档
 - [x] **T-1 集成测试**：`tests/vpp/`（仿 integration_test.go）——apply 后用 GoVPP dump 或 vppctl 断言 VPP 状态；用 netcfg-vpp 镜像
-- [ ] **D-1 文档**：README/INTRODUCTION 补 VPP 后端章节 + 示例（单文件 renderer / 多文件拆分 / SR-IOV+bond）
+- [x] **D-1 文档**：README/INTRODUCTION 补 VPP 后端章节 + 示例（单文件 renderer / 多文件拆分 / SR-IOV+bond）
 
 ### 边界/未决
 - netns × VPP 交叉（首版 VPP 仅 default 上下文）

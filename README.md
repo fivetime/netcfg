@@ -13,6 +13,7 @@ A network configuration tool compatible with netplan syntax, with native support
 - **NIC tuning**: offload (ethtool), SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode
 - **Pure-Go DHCP**: Built-in DHCPv4/v6 client (falls back to external clients), with DHCP overrides
 - **init-agnostic**: No dependency on systemd-networkd or D-Bus; runs under systemd / OpenRC / runit / etc. Optional supervision templates in `init/`
+- **VPP backend (optional)**: program VPP's userspace dataplane via GoVPP using the same netplan-style YAML — interfaces (af-packet/loopback/dpdk/avf), addresses, routes, VLANs, bridges, bonds, VXLAN. Per-device opt-in; kernel and VPP devices coexist. See `docs/vpp-backend-design.md`
 - **cloud-init Integration**: Works as cloud-init network renderer for VM/bare-metal automation
 - **DHCP Daemon**: Built-in lease renewal
 - **Cross-platform**: Linux only (uses kernel netlink API)
@@ -240,11 +241,62 @@ netns:
 | TUN | `tun-devices` | TUN virtual device |
 | TAP | `tap-devices` | TAP virtual device |
 
+## VPP Backend (optional)
+
+netcfg can program **VPP's userspace dataplane** (via [GoVPP](https://go.fd.io/govpp))
+using the same netplan-style YAML it uses for the kernel. See
+[`docs/vpp-backend-design.md`](docs/vpp-backend-design.md) for the full design.
+
+A device is VPP-managed when it has a `vpp:` block **or** its effective
+`renderer` is `vpp`. Kernel and VPP devices coexist (per-device opt-in); a single
+`renderer: vpp` switches the whole config to VPP.
+
+```yaml
+network:
+  version: 2
+  renderer: vpp
+  ethernets:
+    eth0:
+      addresses: [10.0.0.1/24]
+      routes: [{ to: default, via: 10.0.0.254 }]
+      vpp: { mode: af-packet, host-if: eth0 }   # coexist with kernel NIC
+    vf0:
+      vpp: { mode: dpdk, pci: "0000:03:02.0" }  # VPP owns the NIC/VF
+  bonds:
+    bond0:
+      interfaces: [vf0, vf1]
+      parameters: { mode: 802.3ad }
+      addresses: [10.20.0.1/24]
+  vlans:
+    eth0.100: { id: 100, link: eth0 }
+  tunnels:
+    vx100: { mode: vxlan, id: 100, local: 10.0.0.1, remote: 10.0.0.2 }
+  bridges:
+    br0: { interfaces: [vx100], addresses: [10.22.0.1/24] }   # auto BVI loopback
+```
+
+Multi-file split — keep kernel and VPP configs separate (`vpp:` block marks VPP intent):
+
+```
+/etc/netplan/10-kernel.yaml   # kernel devices (no vpp: block)
+/etc/netplan/20-vpp.yaml      # devices with vpp: blocks
+```
+
+Interface modes: `af-packet` (coexist, default), `dpdk`/`avf` (VPP owns the NIC/VF),
+`loopback`, `tap`, `memif`. NIC-ownership (`dpdk`/`avf`) and `startup.conf`
+(cpu/dpdk/hugepages, generated from the top-level `vpp:` section) require a VPP
+restart to take effect; addresses/routes/VLAN/bridge/bond/VXLAN apply live.
+
+Requirements: a running VPP (binary API socket at `/run/vpp/api.sock`), and netcfg
+running as root or in the `vpp` group. netcfg connects and verifies binding
+compatibility (CRC) at apply time.
+
 ## Comparison with netplan
 
 | Feature | netplan | netcfg |
 |---------|---------|--------|
 | YAML syntax | ✅ | ✅ (compatible) |
+| VPP dataplane backend | ❌ | ✅ (GoVPP) |
 | systemd-networkd backend | ✅ | ❌ (direct netlink) |
 | NetworkManager backend | ✅ | ❌ |
 | Network namespace | ❌ | ✅ |

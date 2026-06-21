@@ -204,6 +204,31 @@
 | `netcfg wg genpsk` | 生成预共享密钥 |
 | `netcfg wg show [iface]` | 显示 WireGuard 状态 |
 
+## VPP 后端（可选）
+
+netcfg 可用同一套 netplan 风格 YAML，把配置下发到 **VPP 用户态数据平面**（经
+GoVPP），而非内核。设计见 `docs/vpp-backend-design.md`。
+
+**归属（做法 A）**：设备带 `vpp:` 块**或**生效 `renderer` 为 `vpp` 即走 VPP；内核与
+VPP 设备可共存（按设备 opt-in），一行 `renderer: vpp` 切整机。多文件可拆
+`10-kernel.yaml` / `20-vpp.yaml`，用 `vpp:` 块隔离。
+
+| 能力 | 状态 | 说明 |
+|------|:----:|------|
+| af-packet 接口 | ✅ | 与内核网卡共存（`mode: af-packet`，默认） |
+| loopback | ✅ | VPP 软件 loopback / BVI |
+| 地址 / 路由 / 默认网关 | ✅ | v4/v6，幂等 |
+| VLAN sub-interface | ✅ | `vlans` → dot1q |
+| bridge domain + BVI | ✅ | `bridges`，带地址自动建 BVI loopback |
+| bond | ✅ | `bonds`，mode 映射（802.3ad→lacp 等） |
+| VXLAN | ✅ | `tunnels:mode:vxlan` |
+| dpdk / avf 独占 | 🟡 | NIC/VF 独占；生成 `startup.conf`，运行态需真机 PCI |
+| startup.conf 生成 | ✅ | cpu/dpdk/uio（顶层 `vpp:` 段，改动需重启 VPP） |
+| SR-IOV VF + bond | 🟡 | 内核建 VF(P2-3) + VF 交 VPP + VPP bond；完整链需真机 |
+
+依赖：运行中的 VPP（API socket `/run/vpp/api.sock`）、netcfg 以 root 或 `vpp` 组运行。
+apply 时连接并做绑定 CRC 兼容性自检。集成测试见 `tests/vpp/`。
+
 ## 与 netplan 的对比
 
 | 特性 | netplan | netcfg |

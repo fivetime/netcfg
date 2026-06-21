@@ -1,0 +1,49 @@
+# netcfg VPP 后端示例 —— 同一套 netplan 风格 YAML 下发到 VPP 用户态数据平面。
+# 设备带 vpp: 块或 renderer: vpp 即走 VPP；内核与 VPP 设备可共存。
+# 需运行中的 VPP（/run/vpp/api.sock），netcfg 以 root 或 vpp 组运行。
+# 详见 docs/vpp-backend-design.md。
+network:
+  version: 2
+  renderer: vpp                      # 全局走 VPP（继承；混合时按设备覆盖 renderer）
+
+  # 可选：VPP 运行时/启动配置（生成 /etc/vpp/startup.conf，改动需重启 VPP）
+  vpp:
+    api-socket: /run/vpp/api.sock
+    startup:
+      main-core: 1
+      workers: 2
+      dpdk:
+        uio-driver: vfio-pci
+
+  ethernets:
+    # af-packet：挂到内核已有网卡（共存，默认模式）
+    eth0:
+      mtu: 9000
+      addresses: [10.0.0.1/24, 2001:db8::1/64]
+      routes:
+        - { to: default, via: 10.0.0.254 }
+      vpp: { mode: af-packet, host-if: eth0 }
+
+    # dpdk 独占：VPP 接管该 VF（PCI），写入 startup.conf，需重启 VPP 生效
+    vf0: { vpp: { mode: dpdk, pci: "0000:03:02.0" } }
+    vf1: { vpp: { mode: dpdk, pci: "0000:03:02.1" } }
+
+    # VPP 软件 loopback
+    lo0: { addresses: [10.255.0.1/32], vpp: { mode: loopback } }
+
+  bonds:
+    bond0:
+      interfaces: [vf0, vf1]         # 成员为已交给 VPP 的 VF
+      parameters: { mode: 802.3ad }  # → VPP lacp
+      addresses: [10.20.0.1/24]
+
+  vlans:
+    eth0.100: { id: 100, link: eth0, addresses: [10.0.100.1/24] }
+
+  tunnels:
+    vx100: { mode: vxlan, id: 100, local: 10.0.0.1, remote: 10.0.0.2 }
+
+  bridges:
+    br0:
+      interfaces: [vx100]            # 把 vxlan 加入 bridge domain
+      addresses: [10.22.0.1/24]      # 带地址 → 自动建 BVI loopback 承载 L3
