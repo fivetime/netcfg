@@ -23,12 +23,13 @@ const (
 
 // LeaseState 租约状态
 type LeaseState struct {
-	Interface  string       `json:"interface"`
-	IPv4       *DHCPv4Lease `json:"ipv4,omitempty"`
-	IPv6       *DHCPv6Lease `json:"ipv6,omitempty"`
-	ObtainedAt time.Time    `json:"obtained_at"`
-	RenewAt    time.Time    `json:"renew_at"`
-	ExpireAt   time.Time    `json:"expire_at"`
+	Interface   string         `json:"interface"`
+	IPv4        *DHCPv4Lease   `json:"ipv4,omitempty"`
+	IPv6        *DHCPv6Lease   `json:"ipv6,omitempty"`
+	ObtainedAt  time.Time      `json:"obtained_at"`
+	RenewAt     time.Time      `json:"renew_at"`
+	ExpireAt    time.Time      `json:"expire_at"`
+	V4Overrides *DHCPOverrides `json:"v4_overrides,omitempty"` // 续约时复用，保证 overrides 一致
 }
 
 // DHCPDaemon DHCP 守护进程
@@ -76,13 +77,14 @@ func (d *DHCPDaemon) Stop() {
 }
 
 // RequestLease 请求新租约
-func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool) error {
+func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool, v4ov, v6ov *DHCPOverrides) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	state := &LeaseState{
-		Interface:  ifaceName,
-		ObtainedAt: time.Now(),
+		Interface:   ifaceName,
+		ObtainedAt:  time.Now(),
+		V4Overrides: v4ov,
 	}
 
 	// DHCPv4
@@ -104,8 +106,8 @@ func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool) error {
 				state.ExpireAt = state.ObtainedAt.Add(24 * time.Hour)
 			}
 
-			// 应用租约
-			if err := d.manager.ApplyDHCPv4Lease(ifaceName, lease); err != nil {
+			// 应用租约（honor dhcp4-overrides）
+			if err := d.manager.ApplyDHCPv4Lease(ifaceName, lease, v4ov); err != nil {
 				slog.Error("failed to apply DHCPv4 lease", "interface", ifaceName, "error", err)
 			}
 			slog.Info("DHCPv4 lease obtained",
@@ -123,6 +125,10 @@ func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool) error {
 			slog.Error("DHCPv6 request failed", "interface", ifaceName, "error", err)
 		} else {
 			state.IPv6 = lease
+			// 应用租约（honor dhcp6-overrides 的 use-dns/use-domains）
+			if err := d.manager.ApplyDHCPv6Lease(ifaceName, lease, v6ov); err != nil {
+				slog.Error("failed to apply DHCPv6 lease", "interface", ifaceName, "error", err)
+			}
 			slog.Info("DHCPv6 lease obtained",
 				"interface", ifaceName,
 				"addresses", lease.Addresses)
@@ -221,7 +227,7 @@ func (d *DHCPDaemon) checkRenewals() {
 				state.ExpireAt = now.Add(newLease.LeaseTime)
 			}
 
-			if err := d.manager.ApplyDHCPv4Lease(ifaceName, newLease); err != nil {
+			if err := d.manager.ApplyDHCPv4Lease(ifaceName, newLease, state.V4Overrides); err != nil {
 				slog.Error("failed to apply renewed lease", "interface", ifaceName, "error", err)
 			}
 			d.saveLease(ifaceName, state)

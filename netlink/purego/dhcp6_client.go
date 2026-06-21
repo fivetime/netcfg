@@ -1,15 +1,11 @@
-//go:build purego
-// +build purego
-
 /*
 Copyright © 2024 netcfg authors
 
 Pure Go DHCPv6 client using insomniacslk/dhcp library.
 Supports: Solicit/Advertise/Request/Reply, Rapid Commit, IA_NA, IA_PD, Renew, Release.
 
-To enable this module:
-  1. go get github.com/insomniacslk/dhcp@latest
-  2. go build -tags purego -o netcfg .
+Compiled by default and used as the primary DHCP path (netlink.DHCPManager
+falls back to external clients when the pure-Go path fails).
 */
 
 package purego

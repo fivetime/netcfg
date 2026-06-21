@@ -1,5 +1,6 @@
 # Binaries
 netcfg
+netcfg.linux
 *.exe
 *.dll
 *.so

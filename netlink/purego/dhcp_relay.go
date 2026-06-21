@@ -4,12 +4,13 @@
 /*
 Copyright © 2024 netcfg authors
 
-DHCP Relay Agent implementation.
-Supports DHCPv4 (Option 82) and DHCPv6 (Relay-Forward/Reply).
+DHCP Relay Agent implementation (DHCPv4 Option 82 / DHCPv6 Relay-Forward/Reply).
 
-To enable this module:
-  1. go get github.com/insomniacslk/dhcp@latest
-  2. go build -tags purego -o netcfg .
+WIP / 未接入：本文件仍带 `purego` build tag，默认不编译。它对最新版
+insomniacslk/dhcp 存在 API 漂移（Clone/RelayOptions/sub-option 访问方式已变），
+且 RelayServer.Run() 仅为伪代码框架。DHCP **客户端**（dhcp4_client.go /
+dhcp6_client.go）已去 tag 并默认接入主路径；relay 作为独立特性留待后续修复，
+见 TODO P2-4。
 */
 
 package purego

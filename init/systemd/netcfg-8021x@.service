@@ -1,0 +1,27 @@
+# netcfg 802.1X (wired EAP) supplicant supervision — OPTIONAL template.
+#
+# Use only if you want supervised lifecycle (start on boot + restart on crash).
+# Enable per interface (%i = interface name):
+#     systemctl enable --now netcfg-8021x@eth0
+#
+# Requires:
+#   - wpa_supplicant installed
+#   - netcfg apply has written /etc/netcfg/wpa-<iface>.conf
+#   - set NETCFG_SUPPLICANT_EXTERNAL=1 for netcfg (so apply does not also spawn);
+#     e.g. add Environment=NETCFG_SUPPLICANT_EXTERNAL=1 to netcfg.service.
+[Unit]
+Description=netcfg 802.1X supplicant for %i
+After=netcfg.service
+Wants=network.target
+Before=network-online.target
+ConditionPathExists=/etc/netcfg/wpa-%i.conf
+
+[Service]
+Type=simple
+# foreground (no -B); systemd supervises and restarts
+ExecStart=/sbin/wpa_supplicant -i %i -D wired -c /etc/netcfg/wpa-%i.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

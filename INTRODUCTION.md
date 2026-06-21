@@ -132,11 +132,12 @@
 | DHCPv4 | ✅ | 自动获取 IPv4 地址 |
 | DHCPv6 | ✅ | 自动获取 IPv6 地址 |
 | SLAAC | ✅ | IPv6 无状态自动配置 |
-| 静态路由 | ✅ | 目标/网关/metric/表 |
-| 策略路由 | ✅ | 基于源/目标/标记的路由 |
+| 静态路由 | ✅ | to/via/from/metric/table/scope/type/on-link/mtu（见 TODO P0-3） |
+| 策略路由 | ✅ | 基于源/目标/标记的路由（含 VRF 级，见 TODO P0-7） |
 | 路由表 | ✅ | 多路由表支持 |
 | 默认路由 | ✅ | 网关配置 |
-| 链路本地 | ✅ | link-local 地址 |
+| 链路本地 | ✅ | IPv6 link-local（addr_gen_mode）；IPv4 LL 未支持，见 TODO P0-5 |
+| IPv6 隐私扩展 | ✅ | ipv6-privacy（use_tempaddr，见 TODO P0-6） |
 
 ### 高级网络功能
 
@@ -144,12 +145,12 @@
 |------|:----:|------|
 | MTU 配置 | ✅ | 最大传输单元 |
 | MAC 地址 | ✅ | 自定义硬件地址 |
-| 混杂模式 | ✅ | promiscuous mode |
-| Wake-on-LAN | ✅ | 远程唤醒 |
-| 链路检测 | ✅ | carrier/dormant 状态 |
-| optional 标记 | ✅ | 设备可选，不阻塞启动 |
-| DNS 配置 | ✅ | nameservers/search domains |
-| 接口重命名 | ✅ | 基于 match 规则 |
+| 混杂模式 | ⏳ | promiscuous mode（未实现） |
+| Wake-on-LAN | ✅ | 远程唤醒（ethtool wol，见 TODO P2-6） |
+| 链路检测 | ✅ | carrier/dormant 状态（status 显示） |
+| optional 标记 | ✅ | 设备可选，不阻塞启动（status --wait，见 TODO P0-5） |
+| DNS 配置 | ✅ | nameservers/search domains（resolvectl/resolv.conf，见 TODO P0-4） |
+| 接口重命名 | ✅ | 基于 match (name/mac/driver) 规则，set-name（见 TODO P1-5） |
 
 ### 运维功能
 
@@ -217,12 +218,13 @@ network:
     eth0:
       addresses: [10.0.0.1/24]
   
-  vxlans:
+  tunnels:
     vxlan100:
+      mode: vxlan
       id: 100
       local: 10.0.0.1
       port: 4789
-      learning: false
+      mac-learning: false
       l2miss: true
       l3miss: true
   
@@ -251,13 +253,11 @@ network:
         veth-b:
           addresses: [10.2.0.1/24]
   
-  veths:
+  virtual-ethernets:
     veth-a:
-      peer:
-        name: veth-a-br
+      peer: veth-a-br
     veth-b:
-      peer:
-        name: veth-b-br
+      peer: veth-b-br
 ```
 
 ### 3. WireGuard VPN 网关
@@ -266,16 +266,18 @@ network:
 network:
   version: 2
   
-  wireguards:
+  tunnels:
     wg0:
+      mode: wireguard
       addresses: [10.10.0.1/24]
-      listen-port: 51820
-      private-key: "BASE64_PRIVATE_KEY"
+      port: 51820
+      key: "BASE64_PRIVATE_KEY"
       peers:
-        - public-key: "PEER_PUBLIC_KEY"
+        - keys:
+            public: "PEER_PUBLIC_KEY"
           allowed-ips: [10.10.0.0/24, 192.168.0.0/16]
           endpoint: "vpn.example.com:51820"
-          persistent-keepalive: 25
+          keepalive: 25
 ```
 
 ### 4. Kubernetes 节点网络

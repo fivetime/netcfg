@@ -91,7 +91,9 @@ func applyConfigWithDaemon(cfg *config.Config, daemon *netlink.DHCPDaemon) error
 	// 处理需要 DHCP 的接口
 	for name, eth := range cfg.Network.Ethernets {
 		if eth.DHCP4 || eth.DHCP6 {
-			if err := daemon.RequestLease(name, eth.DHCP4, eth.DHCP6); err != nil {
+			v4ov := dhcpOverridesToNl(eth.DHCP4Overrides)
+			v6ov := dhcpOverridesToNl(eth.DHCP6Overrides)
+			if err := daemon.RequestLease(name, eth.DHCP4, eth.DHCP6, v4ov, v6ov); err != nil {
 				slog.Error("DHCP request failed", "interface", name, "error", err)
 			}
 		}

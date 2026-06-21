@@ -1,0 +1,17 @@
+#!/bin/sh
+# netcfg supplicant supervision — OPTIONAL template (runit; Void/Artix).
+#
+# Use only if you want supervised lifecycle (start on boot + restart on crash).
+# Setup (one service dir per interface; rename to match the interface):
+#   cp -r init/runit/netcfg-supplicant-eth0 /etc/sv/netcfg-supplicant-eth0
+#   edit IFACE/DRIVER below
+#   ln -s /etc/sv/netcfg-supplicant-eth0 /var/service/
+# Also set NETCFG_SUPPLICANT_EXTERNAL=1 for netcfg so apply does not also spawn.
+#
+# DRIVER: "wired" for 802.1X, "nl80211" for WiFi.
+
+IFACE=eth0
+DRIVER=wired
+
+# foreground (no -B); runit supervises and restarts on exit
+exec wpa_supplicant -i "$IFACE" -D "$DRIVER" -c "/etc/netcfg/wpa-${IFACE}.conf"
