@@ -107,7 +107,7 @@
 - [ ] 完整实现：需引入用户态 RA/NDISC 客户端（大工程），延后
 - 验收：`GOOS=linux go build/vet` 通过；config 包 smoke test 通过
 
-### P1-3 802.1X 认证（有线） · **L** · ✅ 已完成（生成 conf + systemd unit）
+### P1-3 802.1X 认证（有线） · **L** · ✅ 已完成（生成 conf + 直接 spawn，init-agnostic）
 - 决策（已确认）：802.1x 物理上必须 wpa_supplicant（内核不做 EAP）。采用「生成配置 + 交给 systemd 启动」方式，不在 netcfg 进程内管理 supplicant 生命周期
 - [x] config 新增 `Auth` schema（Ethernet.Auth，与未来 WiFi 共用）：key-management/method/identity/anonymous-identity/password/ca-certificate/client-certificate/client-key/client-key-password/phase2-auth
 - [x] `cmd/dot1x.go` `setup8021x`：key-management 为 802.1x（→key_mgmt=IEEE8021X）或 eap*（→WPA-EAP）时，生成 `/etc/netcfg/wpa-<iface>.conf`(0600) + `/etc/systemd/system/netcfg-8021x-<iface>.service`，并 best-effort `systemctl enable --now`
@@ -153,7 +153,7 @@
 
 ## 🟢 P2 — 补齐设备类型与高级功能（M3）
 
-### P2-1 WiFi 无线网络 · **L** · ✅ 已完成（生成 conf + systemd unit）
+### P2-1 WiFi 无线网络 · **L** · ✅ 已完成（生成 conf + 直接 spawn，init-agnostic）
 - config 新增 `wifis`（Wifi/AccessPoint，复用 802.1x 的 `auth` 块）；设备级地址/路由/DHCP 复用以太网路径
 - `cmd/wifi.go` `setupWifis`：生成 `/etc/netcfg/wpa-<iface>.conf`（每 AP 一个 network 块）+ systemd unit（wpa_supplicant -D nl80211），best-effort systemctl enable；regulatory-domain 经 iw reg set
 - AP 鉴权：password→PSK；auth.key-management = sae(SAE/WPA3) / eap*(WPA-EAP, 复用 writeEAPFields) / none(开放)；mode/bssid/hidden 均支持
