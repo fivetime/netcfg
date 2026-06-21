@@ -94,7 +94,15 @@
 
 ## 测试总结
 
-**全部 34 个 netplan examples：apply rc=0、零 panic、零崩溃。**
+**回归验证（2026-06-21，P1/P2 全部功能 + 自造键移除 + init-agnostic 改造后）：**
+- 原生单测（config/state）通过
+- 全部 34 个 netplan examples：apply rc=0、零 panic、零崩溃
+- 关键迁移项功能性抽查通过：vxlan（tunnels:mode:vxlan → 设备+bridge enslave+MTU）、wireguard（tunnels:mode:wireguard → 公钥/端口/fwmark）、virtual-ethernets（veth 对 + 双 bridge enslave）
+- 结论：P1/P2 一长串改动 + 语法迁移**无回归**
+
+---
+
+**首轮全量（基线）：apply rc=0、零 panic、零崩溃。**
 - A 组（12 虚拟设备）✅ 全通过
 - B 组（8 地址/路由）✅ 全通过（on-link/策略路由/多网关 metric 均验证）
 - C 组（2 DHCP）✅ 请求发起正常（隔离环境无 DHCP 服务器，未验证完整租约）
