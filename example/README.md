@@ -13,6 +13,9 @@
 | `full-example.yaml` | netns 综合：default + 多 netns + 跨 ns veth + macvlan |
 | `vpp-example.yaml` | VPP 后端：af-packet/dpdk/loopback、bond、vlan、vxlan、bridge+BVI，以及 NAT44/64/66（netcfg 扩展，见 `docs/vpp-backend-design.md`）|
 
+另见 `netplan/` 子目录：收录全部 35 个**官方 netplan 示例**（100% 兼容，均经
+`netcfg generate` 验证），覆盖 netplan 的所有特性，可直接 `netcfg apply`。
+
 说明：
 - `vpp-example.yaml` 需要运行中的 VPP（`/run/vpp/api.sock`）；其余为内核后端（直接 netlink）。
 - WiFi/802.1X 需 `wpa_supplicant`；netcfg 生成配置并直接 spawn（init-agnostic）。
