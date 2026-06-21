@@ -636,6 +636,11 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 		if err := setupDeviceWithDHCP(mgr, name, cfg); err != nil {
 			slog.Warn("failed to setup ethernet", "device", name, "error", err)
 		}
+
+		// 802.1X / EAP：生成 wpa_supplicant 配置 + systemd unit（交给 systemd 启动）
+		if cfg.Auth != nil {
+			setup8021x(name, cfg.Auth)
+		}
 	}
 
 	return nil

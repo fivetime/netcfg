@@ -148,6 +148,23 @@ type Ethernet struct {
 	IPv6Privacy    *bool            `yaml:"ipv6-privacy,omitempty"`
 	LinkLocal      []string         `yaml:"link-local,omitempty"`
 	Wakeonlan      bool             `yaml:"wakeonlan,omitempty"`
+	Auth           *Auth            `yaml:"auth,omitempty"` // 802.1X/EAP（生成 wpa_supplicant 配置 + systemd unit）
+}
+
+// Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。
+// netcfg 据此生成 wpa_supplicant 配置与 systemd unit，由 systemd 启动
+// wpa_supplicant（内核不做 EAP，必须依赖 supplicant）。
+type Auth struct {
+	KeyManagement     string `yaml:"key-management,omitempty"` // none/psk/psk-sha256/eap/eap-sha256/sae/802.1x
+	Password          string `yaml:"password,omitempty"`
+	Method            string `yaml:"method,omitempty"` // tls/peap/leap/pwd/ttls
+	Identity          string `yaml:"identity,omitempty"`
+	AnonymousIdentity string `yaml:"anonymous-identity,omitempty"`
+	CACertificate     string `yaml:"ca-certificate,omitempty"`
+	ClientCertificate string `yaml:"client-certificate,omitempty"`
+	ClientKey         string `yaml:"client-key,omitempty"`
+	ClientKeyPassword string `yaml:"client-key-password,omitempty"`
+	Phase2Auth        string `yaml:"phase2-auth,omitempty"`
 }
 
 // RAOverrides IPv6 Router Advertisement 行为覆盖（netplan ra-overrides）。

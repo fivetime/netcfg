@@ -168,6 +168,27 @@ func TestRAOverridesUnmarshalBareBool(t *testing.T) {
 	}
 }
 
+func TestAuthUnmarshal(t *testing.T) {
+	yml := `
+key-management: 802.1x
+method: ttls
+identity: fluffy@cisco.com
+password: secret
+phase2-auth: MSCHAPV2
+ca-certificate: /etc/ssl/ca.pem
+`
+	var a Auth
+	if err := yaml.Unmarshal([]byte(yml), &a); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if a.KeyManagement != "802.1x" || a.Method != "ttls" || a.Identity != "fluffy@cisco.com" {
+		t.Errorf("auth parsed wrong: %+v", a)
+	}
+	if a.Phase2Auth != "MSCHAPV2" || a.CACertificate != "/etc/ssl/ca.pem" {
+		t.Errorf("auth phase2/ca parsed wrong: %+v", a)
+	}
+}
+
 func TestLoadConfigMultiFileMerge(t *testing.T) {
 	dir := t.TempDir()
 

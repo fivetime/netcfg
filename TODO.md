@@ -107,7 +107,14 @@
 - [ ] 完整实现：需引入用户态 RA/NDISC 客户端（大工程），延后
 - 验收：`GOOS=linux go build/vet` 通过；config 包 smoke test 通过
 
-### P1-3 802.1X 认证（有线） · **L**
+### P1-3 802.1X 认证（有线） · **L** · ✅ 已完成（生成 conf + systemd unit）
+- 决策（已确认）：802.1x 物理上必须 wpa_supplicant（内核不做 EAP）。采用「生成配置 + 交给 systemd 启动」方式，不在 netcfg 进程内管理 supplicant 生命周期
+- [x] config 新增 `Auth` schema（Ethernet.Auth，与未来 WiFi 共用）：key-management/method/identity/anonymous-identity/password/ca-certificate/client-certificate/client-key/client-key-password/phase2-auth
+- [x] `cmd/dot1x.go` `setup8021x`：key-management 为 802.1x（→key_mgmt=IEEE8021X）或 eap*（→WPA-EAP）时，生成 `/etc/netcfg/wpa-<iface>.conf`(0600) + `/etc/systemd/system/netcfg-8021x-<iface>.service`，并 best-effort `systemctl enable --now`
+- [x] setupEthernets 接入（设备 up 后，cfg.Auth 存在则调用）
+- 真机验证：dhcp_wired8021x.yaml 生成的 conf（IEEE8021X/TTLS/identity/password）与 unit（wpa_supplicant -D wired）正确；缺 wpa_supplicant/systemctl 时优雅告警不中断
+- 说明：psk/sae（WiFi）不在此处理，留给 P2-1 WiFi（共用 Auth 块）
+- 原 P1-3 子项（未完成清单）：
 - [ ] 新增 `auth` 块：`key-management, method, identity, anonymous-identity, password, ca-certificate, client-certificate, client-key, client-key-password, phase2-auth`（netplan-yaml.md:898-965）
 - 影响文件：`config/config.go`、新增 `netlink/8021x.go`（需集成 wpa_supplicant 或 systemd-networkd）
 - 依赖：实现机制需调研（netcfg 直接 netlink，802.1X 需用户态 supplicant）
