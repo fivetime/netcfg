@@ -37,6 +37,7 @@ var supportedNetworkKeys = map[string]bool{
 	"bridges": true, "bonds": true, "vlans": true,
 	"tunnels": true, "vrfs": true,
 	"tun-devices": true, "tap-devices": true, "netns": true,
+	"vpp": true, // VPP 后端全局段（docs/vpp-backend-design.md）
 }
 
 // warnUnsupportedConfig 解析原始 YAML 顶层结构，对 netcfg 不支持/会忽略的配置段
@@ -100,6 +101,9 @@ type Network struct {
 	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
 	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
 	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
+
+	// VPP 后端全局配置（运行时/启动；netcfg 新增，见 docs/vpp-backend-design.md）
+	VPP *VPPGlobal `yaml:"vpp,omitempty"`
 
 	// netns 配置
 	Netns map[string]*Namespace `yaml:"netns,omitempty"`
@@ -182,6 +186,50 @@ type Ethernet struct {
 	NeighSuppress   *bool `yaml:"neigh-suppress,omitempty"`
 	Hairpin         *bool `yaml:"hairpin,omitempty"`
 	PortMacLearning *bool `yaml:"port-mac-learning,omitempty"`
+
+	// VPP 后端（做法 A：带 vpp 块或 renderer:vpp → 走 VPP）。见 docs/vpp-backend-design.md
+	Renderer string     `yaml:"renderer,omitempty"` // 设备级覆盖（vpp / networkd…），默认继承全局
+	VPP      *VPPDevice `yaml:"vpp,omitempty"`      // VPP 设备落地细节；存在即归 VPP
+}
+
+// VPPGlobal 顶层 vpp: 段——VPP 运行时/启动配置（netplan 无对应，netcfg 新增）。
+type VPPGlobal struct {
+	APISocket string      `yaml:"api-socket,omitempty"` // 默认 /run/vpp/api.sock
+	Reconnect *bool       `yaml:"reconnect,omitempty"`  // 默认 true
+	Startup   *VPPStartup `yaml:"startup,omitempty"`    // 生成 /etc/vpp/startup.conf（V1c）
+}
+
+// VPPStartup 生成 startup.conf 的开机持久参数（改动需 VPP 重启）。
+type VPPStartup struct {
+	MainCore        *int     `yaml:"main-core,omitempty"`
+	Workers         *int     `yaml:"workers,omitempty"`
+	CorelistWorkers string   `yaml:"corelist-workers,omitempty"`
+	Hugepages       int      `yaml:"hugepages,omitempty"` // 2MB 页数
+	Dpdk            *VPPDpdk `yaml:"dpdk,omitempty"`
+}
+
+// VPPDpdk startup.conf 的 dpdk{} 段。
+type VPPDpdk struct {
+	UioDriver string   `yaml:"uio-driver,omitempty"` // vfio-pci/igb_uio/uio_pci_generic/auto
+	Dev       []string `yaml:"dev,omitempty"`        // 独占设备 PCI 清单
+}
+
+// VPPDevice 设备级 vpp: 子块——后端落地细节（仿 netplan openvswitch: 子块）。
+// 存在即表示该设备归 VPP 管。各字段按 mode 取用，未用字段忽略。
+type VPPDevice struct {
+	Mode      string `yaml:"mode,omitempty"`    // af-packet(默认)/dpdk/avf/rdma/tap/loopback/memif
+	HostIf    string `yaml:"host-if,omitempty"` // af-packet/rdma/tap；默认=设备名
+	PCI       string `yaml:"pci,omitempty"`     // dpdk/avf 必填
+	RxQueues  int    `yaml:"rx-queues,omitempty"`
+	TxQueues  int    `yaml:"tx-queues,omitempty"`
+	NumRxDesc int    `yaml:"num-rx-desc,omitempty"`
+	NumTxDesc int    `yaml:"num-tx-desc,omitempty"`
+	HostNS    string `yaml:"host-ns,omitempty"`   // tap 内核端 netns
+	Socket    string `yaml:"socket,omitempty"`    // memif socket 文件
+	ID        int    `yaml:"id,omitempty"`        // memif id
+	Role      string `yaml:"role,omitempty"`      // memif master/slave
+	RingSize  int    `yaml:"ring-size,omitempty"` // memif 环大小
+	BdID      int    `yaml:"bd-id,omitempty"`     // bridge domain 数字 id（bridge 用，缺省自动分配）
 }
 
 // Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。
@@ -366,6 +414,8 @@ type Bridge struct {
 	VlanFiltering *bool             `yaml:"vlan-filtering,omitempty"` // EVPN
 	FDB           []*FDBEntry       `yaml:"fdb,omitempty"`            // 静态 FDB
 	Neighbors     []*NeighEntry     `yaml:"neighbors,omitempty"`      // 静态 ARP/ND
+	Renderer      string            `yaml:"renderer,omitempty"`       // VPP 后端：设备级覆盖
+	VPP           *VPPDevice        `yaml:"vpp,omitempty"`            // VPP 后端：bridge domain（bd-id）
 }
 
 // BridgeParameters 网桥参数
@@ -391,6 +441,8 @@ type Bond struct {
 	Nameservers *Nameservers    `yaml:"nameservers,omitempty"`
 	DHCP4       bool            `yaml:"dhcp4,omitempty"`
 	DHCP6       bool            `yaml:"dhcp6,omitempty"`
+	Renderer    string          `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
+	VPP         *VPPDevice      `yaml:"vpp,omitempty"`      // VPP 后端：归属信号
 }
 
 // BondParameters 绑定参数
@@ -428,6 +480,8 @@ type Vlan struct {
 	Nameservers *Nameservers `yaml:"nameservers,omitempty"`
 	DHCP4       bool         `yaml:"dhcp4,omitempty"`
 	DHCP6       bool         `yaml:"dhcp6,omitempty"`
+	Renderer    string       `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
+	VPP         *VPPDevice   `yaml:"vpp,omitempty"`      // VPP 后端：sub-interface 归属信号
 }
 
 // Vxlan VXLAN 配置
@@ -462,6 +516,7 @@ type Vxlan struct {
 	MacAddress     string        `yaml:"macaddress,omitempty"`
 	FDB            []*FDBEntry   `yaml:"fdb,omitempty"`       // 静态 FDB
 	Neighbors      []*NeighEntry `yaml:"neighbors,omitempty"` // 静态 ARP/ND
+	VPP            *VPPDevice    `yaml:"-"`                   // VPP 后端：由 Normalize 从 Tunnel 带入
 }
 
 // FDBEntry FDB 条目配置 (EVPN 静态 MAC)
@@ -522,6 +577,9 @@ type Tunnel struct {
 	MacAddress     string        `yaml:"macaddress,omitempty"`
 	FDB            []*FDBEntry   `yaml:"fdb,omitempty"`
 	Neighbors      []*NeighEntry `yaml:"neighbors,omitempty"`
+
+	Renderer string     `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
+	VPP      *VPPDevice `yaml:"vpp,omitempty"`      // VPP 后端：vxlan tunnel 归属信号
 }
 
 // TunnelWireguardPeer netplan tunnels:mode:wireguard 的 peer（与自有 wireguards: 的

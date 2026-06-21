@@ -258,7 +258,7 @@
 - [x] **P-3 CI 影响**：CI 已用 `go-version-file: go.mod`（P2-4 时改），自动按 go.mod 取 1.25.0，无需改 workflow（下次 CI 运行验证）
 
 ### 阶段 V0 — 脚手架（编译 + 连接冒烟）
-- [ ] **V0-1 config schema**：顶层 `Network.VPP`（api-socket/reconnect/startup{main-core/workers/corelist/hugepages/dpdk{uio-driver/dev}}）；设备级 `VPPDevice`（mode/host-if/pci/rx-queues/tx-queues/num-rx-desc/num-tx-desc/host-ns/socket/id/role/ring-size/bd-id），加到 Ethernet/Bridge 等含 `vpp:` 的设备
+- [x] **V0-1 config schema**：顶层 `Network.VPP`（api-socket/reconnect/startup{main-core/workers/corelist/hugepages/dpdk{uio-driver/dev}}）；设备级 `VPPDevice`（mode/host-if/pci/rx-queues/tx-queues/num-rx-desc/num-tx-desc/host-ns/socket/id/role/ring-size/bd-id），加到 Ethernet/Bridge 等含 `vpp:` 的设备
 - [ ] **V0-2 设备归属**：`isVPPManaged(cfg)`（有 vpp 块 或 renderer 解析为 vpp）；renderer 继承（设备级>全局）
 - [ ] **V0-3 互斥/合法性校验**：同名设备不得跨内核/VPP；dpdk/avf 必填 pci；mode 枚举校验；解析期报错不静默
 - [ ] **V0-4 Applier 抽象**：定义 applier 接口；现有 netlink 逻辑归 KernelApplier（最小重构）；apply 主流程按设备分流到 Kernel/VPP

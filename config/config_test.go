@@ -280,3 +280,58 @@ func writeFile(t *testing.T, dir, name, content string) string {
 	}
 	return path
 }
+
+func TestVPPSchemaParse(t *testing.T) {
+	yml := `
+network:
+  version: 2
+  renderer: vpp
+  vpp:
+    api-socket: /run/vpp/api.sock
+    startup:
+      main-core: 1
+      workers: 2
+      hugepages: 1024
+      dpdk:
+        uio-driver: vfio-pci
+        dev: ["0000:02:00.0"]
+  ethernets:
+    eth0:
+      addresses: [10.0.0.1/24]
+      vpp:
+        mode: af-packet
+        host-if: eth0
+    vf0:
+      vpp: { mode: dpdk, pci: "0000:03:02.0" }
+  bridges:
+    br0:
+      interfaces: [eth0]
+      vpp: { bd-id: 10 }
+`
+	var c Config
+	if err := yaml.Unmarshal([]byte(yml), &c); err != nil {
+		t.Fatalf("unmarshal vpp config: %v", err)
+	}
+	n := c.Network
+	if n.VPP == nil || n.VPP.APISocket != "/run/vpp/api.sock" {
+		t.Fatalf("global vpp section not parsed: %+v", n.VPP)
+	}
+	if n.VPP.Startup == nil || n.VPP.Startup.Workers == nil || *n.VPP.Startup.Workers != 2 {
+		t.Fatalf("vpp.startup not parsed: %+v", n.VPP.Startup)
+	}
+	if n.VPP.Startup.Dpdk == nil || len(n.VPP.Startup.Dpdk.Dev) != 1 {
+		t.Fatalf("vpp.startup.dpdk not parsed")
+	}
+	eth0 := n.Ethernets["eth0"]
+	if eth0 == nil || eth0.VPP == nil || eth0.VPP.Mode != "af-packet" || eth0.VPP.HostIf != "eth0" {
+		t.Fatalf("eth0 vpp block not parsed: %+v", eth0)
+	}
+	vf0 := n.Ethernets["vf0"]
+	if vf0 == nil || vf0.VPP == nil || vf0.VPP.Mode != "dpdk" || vf0.VPP.PCI != "0000:03:02.0" {
+		t.Fatalf("vf0 vpp block not parsed: %+v", vf0)
+	}
+	br0 := n.Bridges["br0"]
+	if br0 == nil || br0.VPP == nil || br0.VPP.BdID != 10 {
+		t.Fatalf("br0 vpp block not parsed: %+v", br0)
+	}
+}
