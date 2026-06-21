@@ -670,7 +670,8 @@ func parseBondPrimaryReselect(s string) (netlink.BondPrimaryReselect, bool) {
 	return 0, false
 }
 
-// SetBondSlave 将链路添加到绑定
+// SetBondSlave 将链路加入 bond。内核要求成员在 enslave 时处于 down 状态，
+// 故先 down 再 enslave（bond 会接管成员状态，随后由 bond 拉起）。
 func (m *NetlinkManager) SetBondSlave(linkName, bondName string) error {
 	link, err := m.handle.LinkByName(linkName)
 	if err != nil {
@@ -682,7 +683,18 @@ func (m *NetlinkManager) SetBondSlave(linkName, bondName string) error {
 		return fmt.Errorf("failed to get bond %s: %w", bondName, err)
 	}
 
-	return m.handle.LinkSetMaster(link, bond)
+	// 成员必须先 down 才能 enslave（否则 EPERM "operation not permitted"）
+	if err := m.handle.LinkSetDown(link); err != nil {
+		return fmt.Errorf("failed to set %s down before enslaving: %w", linkName, err)
+	}
+	if err := m.handle.LinkSetMaster(link, bond); err != nil {
+		return fmt.Errorf("failed to enslave %s to %s: %w", linkName, bondName, err)
+	}
+	// 重新拉起成员（bond 模式通常需要成员 up）
+	if err := m.handle.LinkSetUp(link); err != nil {
+		slog.Warn("failed to bring bond member up after enslaving", "member", linkName, "error", err)
+	}
+	return nil
 }
 
 // AddVlan 创建 VLAN 设备
@@ -1587,11 +1599,28 @@ func (m *NetlinkManager) ListRoutes(linkName string) ([]netlink.Route, error) {
 // ========== 路由规则操作 ==========
 
 // AddRule 添加路由规则
+// parseCIDROrIP 解析 CIDR 或裸 IP（裸 IP 按 /32 或 /128）。
+// netplan 的 routing-policy from/to 允许直接写主机 IP，不强制带前缀。
+func parseCIDROrIP(s string) (*net.IPNet, error) {
+	if _, n, err := net.ParseCIDR(s); err == nil {
+		return n, nil
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid address %q", s)
+	}
+	bits := 32
+	if ip.To4() == nil {
+		bits = 128
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
+}
+
 func (m *NetlinkManager) AddRule(from, to string, table, priority, mark int) error {
 	rule := netlink.NewRule()
 
 	if from != "" {
-		_, srcNet, err := net.ParseCIDR(from)
+		srcNet, err := parseCIDROrIP(from)
 		if err != nil {
 			return fmt.Errorf("invalid from %s: %w", from, err)
 		}
@@ -1599,7 +1628,7 @@ func (m *NetlinkManager) AddRule(from, to string, table, priority, mark int) err
 	}
 
 	if to != "" {
-		_, dstNet, err := net.ParseCIDR(to)
+		dstNet, err := parseCIDROrIP(to)
 		if err != nil {
 			return fmt.Errorf("invalid to %s: %w", to, err)
 		}

@@ -226,6 +226,16 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 		}
 	}
 
+	// virtual-ethernets（netplan 标准 veth）
+	for name, cfg := range ns.VirtualEthernets {
+		nsState.Devices[name] = &state.DeviceState{
+			Type:      "veth",
+			Addresses: addrStrings(cfg.Addresses),
+			Routes:    routesToStrings(cfg.Routes),
+			CreatedBy: "netcfg",
+		}
+	}
+
 	// Macvlan
 	for name, cfg := range ns.MacvlanDevices {
 		nsState.Devices[name] = &state.DeviceState{
@@ -448,6 +458,12 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 		return fmt.Errorf("failed to setup dummy devices: %w", err)
 	}
 
+	// 2.5 virtual-ethernets（netplan 标准 veth，两端互引）。
+	// 须在 bond/bridge 之前创建——其端点常作为 bridge/bond 成员被 enslave。
+	if err := setupVirtualEthernets(mgr, nsName, cfg.VirtualEthernets); err != nil {
+		return fmt.Errorf("failed to setup virtual-ethernets: %w", err)
+	}
+
 	// 3. Macvlan/Macvtap 设备
 	if err := setupMacvlanDevices(mgr, nsName, cfg.MacvlanDevices, false); err != nil {
 		return fmt.Errorf("failed to setup macvlan devices: %w", err)
@@ -480,6 +496,9 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 	if err := setupBridges(mgr, nsName, cfg.Bridges); err != nil {
 		return fmt.Errorf("failed to setup bridges: %w", err)
 	}
+
+	// 7b. VXLAN neigh-suppress（brport 属性，须在 vxlan 加入 bridge 之后设置）
+	applyVxlanNeighSuppress(mgr, cfg.Vxlans)
 
 	// 8. VRF 设备
 	if err := setupVrfs(mgr, nsName, cfg.Vrfs); err != nil {
@@ -739,10 +758,32 @@ func setupVlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 
 // setupVxlans 配置 VXLAN 设备
 func setupVxlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*config.Vxlan) error {
-	names := sortedKeys(devices)
+	for _, name := range sortedKeys(devices) {
+		if err := setupOneVxlan(mgr, nsName, name, devices[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	for _, name := range names {
-		cfg := devices[name]
+// applyVxlanNeighSuppress 为启用了 neigh-suppress 的 VXLAN 设置 brport 属性。
+// 须在 VXLAN 已加入 bridge 之后调用（neigh_suppress 是 bridge 端口属性）。
+func applyVxlanNeighSuppress(mgr *nl.NetlinkManager, vxlans map[string]*config.Vxlan) {
+	for _, name := range sortedKeys(vxlans) {
+		cfg := vxlans[name]
+		if cfg.NeighSuppress != nil && *cfg.NeighSuppress {
+			slog.Info("enabling neigh suppress", "device", name)
+			if err := mgr.SetLinkNeighSuppress(name, true); err != nil {
+				slog.Warn("failed to set neigh suppress", "device", name, "error", err)
+			}
+		}
+	}
+}
+
+// setupOneVxlan 创建并配置单个 VXLAN 设备。供 setupVxlans（netcfg 自有 vxlans:）
+// 与 setupTunnels（netplan 标准 tunnels:mode:vxlan）共用。
+func setupOneVxlan(mgr *nl.NetlinkManager, nsName, name string, cfg *config.Vxlan) error {
+	{
 		slog.Debug("setting up vxlan", "name", name, "netns", nsName, "vni", cfg.ID)
 
 		if !mgr.LinkExists(name) {
@@ -784,13 +825,8 @@ func setupVxlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*conf
 			return fmt.Errorf("failed to setup vxlan %s: %w", name, err)
 		}
 
-		// EVPN: 设置 neigh suppress
-		if cfg.NeighSuppress != nil && *cfg.NeighSuppress {
-			slog.Info("enabling neigh suppress", "device", name)
-			if err := mgr.SetLinkNeighSuppress(name, true); err != nil {
-				slog.Warn("failed to set neigh suppress", "device", name, "error", err)
-			}
-		}
+		// 注：neigh-suppress 是 brport 属性，须在 vxlan 加入 bridge 后设置，
+		// 故移至 applyNamespaceConfig 中 setupBridges 之后统一处理。
 
 		// EVPN: 添加静态 FDB 条目
 		for _, fdb := range cfg.FDB {
@@ -1041,6 +1077,51 @@ func setupVrfs(mgr *nl.NetlinkManager, nsName string, devices map[string]*config
 			if err := addRoutingPolicy(mgr, policy); err != nil {
 				slog.Warn("failed to add routing policy", "vrf", name, "error", err)
 			}
+		}
+	}
+
+	return nil
+}
+
+// setupVirtualEthernets 配置 netplan 标准的 virtual-ethernets。
+// 两个端点是互相引用的顶层条目；从其中一端创建 veth pair，再分别配置两端，
+// 用 done 去重避免重复创建。
+func setupVirtualEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*config.VirtualEthernet) error {
+	done := make(map[string]bool)
+
+	for _, name := range sortedKeys(devices) {
+		if done[name] {
+			continue
+		}
+		cfg := devices[name]
+		peer := cfg.Peer
+		if peer == "" {
+			return fmt.Errorf("virtual-ethernet %s: peer is required", name)
+		}
+
+		if !mgr.LinkExists(name) {
+			slog.Info("creating virtual-ethernet pair", "name", name, "peer", peer, "netns", nsName)
+			if err := mgr.AddVethPair(name, peer); err != nil {
+				return fmt.Errorf("failed to create virtual-ethernet %s<->%s: %w", name, peer, err)
+			}
+		}
+		done[name] = true
+		done[peer] = true
+
+		// 配置本端
+		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, cfg.MacAddress); err != nil {
+			return fmt.Errorf("failed to setup virtual-ethernet %s: %w", name, err)
+		}
+		applyNameservers(mgr, name, cfg.Nameservers)
+
+		// 配置对端（若它也有独立的配置条目）
+		if peerCfg, ok := devices[peer]; ok {
+			if err := setupDevice(mgr, peer, peerCfg.Addresses, peerCfg.Routes, peerCfg.MTU, peerCfg.MacAddress); err != nil {
+				slog.Warn("failed to setup virtual-ethernet peer", "peer", peer, "error", err)
+			}
+			applyNameservers(mgr, peer, peerCfg.Nameservers)
+		} else if err := mgr.SetLinkUp(peer); err != nil {
+			slog.Warn("failed to bring up virtual-ethernet peer", "peer", peer, "error", err)
 		}
 	}
 
@@ -1367,10 +1448,17 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 	if cfg.DHCP6 {
 		slog.Info("starting DHCPv6", "device", name)
 		dhcpMgr := nl.NewDHCPManager()
+		ov6 := dhcpOverridesToNl(cfg.DHCP6Overrides)
 
+		// 纯 Go 客户端只返回 lease，必须显式应用。
 		go func() {
-			if _, err := dhcpMgr.RequestDHCPv6(name, false); err != nil {
+			lease, err := dhcpMgr.RequestDHCPv6(name, false)
+			if err != nil {
 				slog.Error("DHCPv6 failed", "device", name, "error", err)
+				return
+			}
+			if err := dhcpMgr.ApplyDHCPv6Lease(name, lease, ov6); err != nil {
+				slog.Error("failed to apply DHCPv6 lease", "device", name, "error", err)
 			}
 		}()
 	}
@@ -1529,6 +1617,9 @@ func setupTunnels(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 		cfg := devices[name]
 		slog.Debug("setting up tunnel", "name", name, "netns", nsName, "mode", cfg.Mode)
 
+		// 注：mode=vxlan 已在 Normalize 阶段移入 Vxlans（在 bridge 之前创建），
+		// 不会到达这里。
+
 		if !mgr.LinkExists(name) {
 			slog.Info("creating tunnel device", "name", name, "mode", cfg.Mode)
 			opts := &nl.TunnelOptions{
@@ -1546,12 +1637,58 @@ func setupTunnels(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 			}
 		}
 
+		// netplan 标准：mode=wireguard 时经 wgctrl 配置私钥/端口/peers
+		if strings.EqualFold(cfg.Mode, "wireguard") && (cfg.Key != "" || len(cfg.Peers) > 0) {
+			if err := configureTunnelWireguard(name, nsName, cfg); err != nil {
+				return fmt.Errorf("failed to configure wireguard tunnel %s: %w", name, err)
+			}
+		}
+
 		if err := setupDevice(mgr, name, cfg.Addresses, cfg.Routes, cfg.MTU, ""); err != nil {
 			return fmt.Errorf("failed to setup tunnel %s: %w", name, err)
 		}
 	}
 
 	return nil
+}
+
+// configureTunnelWireguard 为 netplan tunnels:mode:wireguard 配置 WireGuard
+// （私钥/端口/fwmark/peers），netns 中则在对应 netns 内执行。复用 wgctrl 路径。
+func configureTunnelWireguard(name, nsName string, cfg *config.Tunnel) error {
+	do := func() error {
+		wgMgr, err := nl.NewWireGuardManager()
+		if err != nil {
+			return fmt.Errorf("failed to create wireguard manager: %w", err)
+		}
+		defer wgMgr.Close()
+
+		wgCfg := &nl.WireGuardConfig{
+			PrivateKey:   cfg.Key, // netplan: key = 私钥
+			ListenPort:   cfg.Port,
+			FwMark:       cfg.Mark,
+			ReplacePeers: true,
+		}
+		for _, p := range cfg.Peers {
+			wgp := &nl.WireGuardPeer{
+				Endpoint:                    p.Endpoint,
+				AllowedIPs:                  p.AllowedIPs,
+				PersistentKeepaliveInterval: p.Keepalive,
+			}
+			if p.Keys != nil {
+				wgp.PublicKey = p.Keys.Public
+				wgp.PresharedKey = p.Keys.Shared
+			}
+			wgCfg.Peers = append(wgCfg.Peers, wgp)
+		}
+
+		slog.Info("configuring wireguard tunnel", "device", name, "port", cfg.Port, "peers", len(cfg.Peers))
+		return wgMgr.ConfigureDevice(name, wgCfg)
+	}
+
+	if nsName != "" {
+		return nl.RunInNetns(nsName, do)
+	}
+	return do()
 }
 
 // setupWireguards 配置 WireGuard 设备

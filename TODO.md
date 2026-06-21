@@ -88,7 +88,7 @@
 
 ## 🟡 P1 — 对齐 netplan 常用属性（M2）
 
-### P1-1 DHCP overrides · **L** · 🟡 v4 完成（依赖 P2-4，已解锁）
+### P1-1 DHCP overrides · **L** · ✅ v4+v6 完成（daemon v6 续约待补）
 - [x] config schema：`DHCP4Overrides`/`DHCP6Overrides`（`DHCPOverrides` 类型；use-domains 用 `interface{}` 兼容 bool/"route"）
 - [x] `netlink.DHCPOverrides` + `ApplyDHCPv4Lease(iface, lease, *DHCPOverrides)` honor **use-dns / use-mtu / use-routes / route-metric / use-domains**（应用 lease 时真实生效）
 - [x] 请求侧 **send-hostname / hostname**：`DHCPManager.SetHostname`/`SetSendHostname`，apply 路径在请求前配置
@@ -96,7 +96,7 @@
 - [x] **顺带补 P2-4 gap**：`setupDeviceWithDHCP` 原先只 `RequestDHCPv4` 丢弃 lease（外部客户端时代靠 dhclient 自己配），纯 Go 改造后必须显式 `ApplyDHCPv4Lease`——现已补上（带 overrides）
 - 已 smoke 验证：use-dns/use-routes/route-metric/send-hostname/hostname/use-domains(route) 解析正确
 - no-op（已显式告警）：`use-ntp`（netcfg 不配 NTP）、`use-hostname`（不设系统主机名）
-- [ ] **DHCPv6 overrides 未应用**：v6 无 ApplyDHCPv6Lease（daemon v6 仅请求不配置），schema 已就位但 v6 apply 路径缺失，待补
+- [x] **DHCPv6 lease 应用 + overrides**：新增 `ApplyDHCPv6Lease`（逐个加 IA_NA /128 地址，不 flush；honor use-dns/use-domains；IA_PD 仅记录不自动配）。apply 命令与 daemon 两条路径都接入（顺带修了 v6 与 v4 同样的「请求了却不应用 lease」gap）。注：DHCPv6 不下发网关/MTU（来自 RA），故 use-routes/use-mtu/route-metric 对 v6 天然 N/A；purego v6 client 无 SetHostname，故 v6 无请求侧 hostname；daemon 暂不续约 v6（renewal loop 仅 v4，待补）
 - 注意：`ApplyDHCPv4Lease` 会 flush 设备全部 v4 地址再加 lease（既有行为）——同设备混用静态+dhcp4 时静态地址会被清，属既有限制
 - 验收：`GOOS=linux go build/vet` 通过；config smoke test 通过；运行期真机（需 CAP_NET_RAW）见 M5
 

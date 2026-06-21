@@ -125,6 +125,10 @@ func (d *DHCPDaemon) RequestLease(ifaceName string, wantV4, wantV6 bool, v4ov, v
 			slog.Error("DHCPv6 request failed", "interface", ifaceName, "error", err)
 		} else {
 			state.IPv6 = lease
+			// 应用租约（honor dhcp6-overrides 的 use-dns/use-domains）
+			if err := d.manager.ApplyDHCPv6Lease(ifaceName, lease, v6ov); err != nil {
+				slog.Error("failed to apply DHCPv6 lease", "interface", ifaceName, "error", err)
+			}
 			slog.Info("DHCPv6 lease obtained",
 				"interface", ifaceName,
 				"addresses", lease.Addresses)

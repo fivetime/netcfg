@@ -414,6 +414,46 @@ func (m *DHCPManager) ApplyDHCPv4Lease(ifaceName string, lease *DHCPv4Lease, ov 
 	return nil
 }
 
+// ApplyDHCPv6Lease 应用 DHCPv6 租约。与 v4 不同：
+//   - 逐个添加 IA_NA 地址（/128），不 flush 现有地址（v6 的 link-local/SLAAC 须保留）
+//   - DHCPv6 不下发网关/MTU（由 RA 提供），故 use-routes/use-mtu/route-metric 对 v6
+//     天然不适用，仅 honor use-dns / use-domains
+//   - IA_PD 委派前缀仅记录，不自动分配（需指定下游接口，超出本函数职责）
+func (m *DHCPManager) ApplyDHCPv6Lease(ifaceName string, lease *DHCPv6Lease, ov *DHCPOverrides) error {
+	if ov == nil {
+		ov = defaultDHCPOverrides()
+	}
+
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return err
+	}
+
+	for _, ip := range lease.Addresses {
+		addr := &netlink.Addr{IPNet: &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}}
+		if err := netlink.AddrAdd(link, addr); err != nil {
+			// 续约时地址通常已存在（EEXIST），非致命
+			slog.Warn("failed to add DHCPv6 address", "interface", ifaceName, "ip", ip, "error", err)
+		}
+	}
+
+	for _, p := range lease.Prefixes {
+		slog.Info("DHCPv6 delegated prefix received (not auto-assigned; configure downstream manually)",
+			"interface", ifaceName, "prefix", p.String())
+	}
+
+	if len(lease.DNS) > 0 && ov.UseDNS {
+		domain := ""
+		if ov.UseDomains && len(lease.Domains) > 0 {
+			domain = lease.Domains[0]
+		}
+		_ = UpdateResolvConf(lease.DNS, domain)
+	}
+
+	slog.Info("DHCPv6 lease applied", "interface", ifaceName, "addresses", lease.Addresses)
+	return nil
+}
+
 func (m *DHCPManager) getLease4FromInterface(ifaceName string) (*DHCPv4Lease, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {

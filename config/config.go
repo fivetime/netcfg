@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -30,7 +31,8 @@ import (
 // 用于对 netplan 中存在但 netcfg 不支持的配置段告警（见 warnUnsupportedConfig）。
 var supportedNetworkKeys = map[string]bool{
 	"version": true, "renderer": true,
-	"ethernets": true, "dummy-devices": true, "veth-devices": true,
+	"ethernets": true, "dummy-devices": true,
+	"virtual-ethernets": true, "veth-devices": true,
 	"macvlan-devices": true, "macvtap-devices": true, "ipvlan-devices": true,
 	"bridges": true, "bonds": true, "vlans": true, "vxlans": true,
 	"tunnels": true, "wireguards": true, "vrfs": true,
@@ -82,21 +84,22 @@ type Network struct {
 	Renderer string `yaml:"renderer,omitempty"`
 
 	// 顶层设备配置 → default namespace
-	Ethernets      map[string]*Ethernet      `yaml:"ethernets,omitempty"`
-	DummyDevices   map[string]*Ethernet      `yaml:"dummy-devices,omitempty"`
-	VethDevices    map[string]*VethDevice    `yaml:"veth-devices,omitempty"`
-	MacvlanDevices map[string]*MacvlanDevice `yaml:"macvlan-devices,omitempty"`
-	MacvtapDevices map[string]*MacvlanDevice `yaml:"macvtap-devices,omitempty"`
-	IpvlanDevices  map[string]*IpvlanDevice  `yaml:"ipvlan-devices,omitempty"`
-	Bridges        map[string]*Bridge        `yaml:"bridges,omitempty"`
-	Bonds          map[string]*Bond          `yaml:"bonds,omitempty"`
-	Vlans          map[string]*Vlan          `yaml:"vlans,omitempty"`
-	Vxlans         map[string]*Vxlan         `yaml:"vxlans,omitempty"`
-	Tunnels        map[string]*Tunnel        `yaml:"tunnels,omitempty"`
-	Wireguards     map[string]*Wireguard     `yaml:"wireguards,omitempty"`
-	Vrfs           map[string]*Vrf           `yaml:"vrfs,omitempty"`
-	TunDevices     map[string]*TunTapDevice  `yaml:"tun-devices,omitempty"`
-	TapDevices     map[string]*TunTapDevice  `yaml:"tap-devices,omitempty"`
+	Ethernets        map[string]*Ethernet        `yaml:"ethernets,omitempty"`
+	DummyDevices     map[string]*Ethernet        `yaml:"dummy-devices,omitempty"`
+	VirtualEthernets map[string]*VirtualEthernet `yaml:"virtual-ethernets,omitempty"` // netplan 标准 veth
+	VethDevices      map[string]*VethDevice      `yaml:"veth-devices,omitempty"`      // netcfg 扩展：跨 netns veth
+	MacvlanDevices   map[string]*MacvlanDevice   `yaml:"macvlan-devices,omitempty"`
+	MacvtapDevices   map[string]*MacvlanDevice   `yaml:"macvtap-devices,omitempty"`
+	IpvlanDevices    map[string]*IpvlanDevice    `yaml:"ipvlan-devices,omitempty"`
+	Bridges          map[string]*Bridge          `yaml:"bridges,omitempty"`
+	Bonds            map[string]*Bond            `yaml:"bonds,omitempty"`
+	Vlans            map[string]*Vlan            `yaml:"vlans,omitempty"`
+	Vxlans           map[string]*Vxlan           `yaml:"vxlans,omitempty"`
+	Tunnels          map[string]*Tunnel          `yaml:"tunnels,omitempty"`
+	Wireguards       map[string]*Wireguard       `yaml:"wireguards,omitempty"`
+	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
+	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
+	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
 
 	// netns 配置
 	Netns map[string]*Namespace `yaml:"netns,omitempty"`
@@ -104,23 +107,24 @@ type Network struct {
 
 // Namespace 网络命名空间配置
 type Namespace struct {
-	Loopback       *Ethernet                 `yaml:"loopback,omitempty"`
-	Ethernets      map[string]*Ethernet      `yaml:"ethernets,omitempty"`
-	DummyDevices   map[string]*Ethernet      `yaml:"dummy-devices,omitempty"`
-	VethDevices    map[string]*VethDevice    `yaml:"veth-devices,omitempty"`
-	MacvlanDevices map[string]*MacvlanDevice `yaml:"macvlan-devices,omitempty"`
-	MacvtapDevices map[string]*MacvlanDevice `yaml:"macvtap-devices,omitempty"`
-	IpvlanDevices  map[string]*IpvlanDevice  `yaml:"ipvlan-devices,omitempty"`
-	Bridges        map[string]*Bridge        `yaml:"bridges,omitempty"`
-	Bonds          map[string]*Bond          `yaml:"bonds,omitempty"`
-	Vlans          map[string]*Vlan          `yaml:"vlans,omitempty"`
-	Vxlans         map[string]*Vxlan         `yaml:"vxlans,omitempty"`
-	Tunnels        map[string]*Tunnel        `yaml:"tunnels,omitempty"`
-	Wireguards     map[string]*Wireguard     `yaml:"wireguards,omitempty"`
-	Vrfs           map[string]*Vrf           `yaml:"vrfs,omitempty"`
-	TunDevices     map[string]*TunTapDevice  `yaml:"tun-devices,omitempty"`
-	TapDevices     map[string]*TunTapDevice  `yaml:"tap-devices,omitempty"`
-	PostScript     string                    `yaml:"post-script,omitempty"`
+	Loopback         *Ethernet                   `yaml:"loopback,omitempty"`
+	Ethernets        map[string]*Ethernet        `yaml:"ethernets,omitempty"`
+	DummyDevices     map[string]*Ethernet        `yaml:"dummy-devices,omitempty"`
+	VirtualEthernets map[string]*VirtualEthernet `yaml:"virtual-ethernets,omitempty"`
+	VethDevices      map[string]*VethDevice      `yaml:"veth-devices,omitempty"`
+	MacvlanDevices   map[string]*MacvlanDevice   `yaml:"macvlan-devices,omitempty"`
+	MacvtapDevices   map[string]*MacvlanDevice   `yaml:"macvtap-devices,omitempty"`
+	IpvlanDevices    map[string]*IpvlanDevice    `yaml:"ipvlan-devices,omitempty"`
+	Bridges          map[string]*Bridge          `yaml:"bridges,omitempty"`
+	Bonds            map[string]*Bond            `yaml:"bonds,omitempty"`
+	Vlans            map[string]*Vlan            `yaml:"vlans,omitempty"`
+	Vxlans           map[string]*Vxlan           `yaml:"vxlans,omitempty"`
+	Tunnels          map[string]*Tunnel          `yaml:"tunnels,omitempty"`
+	Wireguards       map[string]*Wireguard       `yaml:"wireguards,omitempty"`
+	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
+	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
+	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
+	PostScript       string                      `yaml:"post-script,omitempty"`
 }
 
 // Ethernet 以太网设备配置
@@ -247,6 +251,17 @@ type VethPeer struct {
 	Routes     []*Route  `yaml:"routes,omitempty"`
 	MTU        int       `yaml:"mtu,omitempty"`
 	MacAddress string    `yaml:"macaddress,omitempty"`
+}
+
+// VirtualEthernet netplan 标准 virtual-ethernets 设备。
+// 每个 veth 端点是独立的顶层条目，通过 peer 互相引用对端名字。
+type VirtualEthernet struct {
+	Peer        string       `yaml:"peer"` // 对端端点名
+	Addresses   []Address    `yaml:"addresses,omitempty"`
+	Routes      []*Route     `yaml:"routes,omitempty"`
+	MTU         int          `yaml:"mtu,omitempty"`
+	MacAddress  string       `yaml:"macaddress,omitempty"`
+	Nameservers *Nameservers `yaml:"nameservers,omitempty"`
 }
 
 // MacvlanDevice macvlan/macvtap 设备配置
@@ -389,17 +404,43 @@ type NeighEntry struct {
 
 // Tunnel 隧道配置
 type Tunnel struct {
-	Mode      string    `yaml:"mode"` // gre/ipip/sit/vti/vti6/ip6gre/ip6ip6/ipip6
+	Mode      string    `yaml:"mode"` // gre/ipip/sit/vti/vti6/ip6gre/ip6ip6/ipip6/wireguard
 	Local     string    `yaml:"local,omitempty"`
 	Remote    string    `yaml:"remote,omitempty"`
 	TTL       int       `yaml:"ttl,omitempty"`
 	TOS       int       `yaml:"tos,omitempty"`
-	Key       string    `yaml:"key,omitempty"`
+	Key       string    `yaml:"key,omitempty"` // GRE key；mode=wireguard 时为 base64 私钥
 	InputKey  string    `yaml:"input-key,omitempty"`
 	OutputKey string    `yaml:"output-key,omitempty"`
 	Addresses []Address `yaml:"addresses,omitempty"`
 	Routes    []*Route  `yaml:"routes,omitempty"`
 	MTU       int       `yaml:"mtu,omitempty"`
+
+	// mode=wireguard 专用（netplan 标准 tunnels:mode:wireguard）
+	Port  int                    `yaml:"port,omitempty"`  // WireGuard 监听端口 / VXLAN dest port
+	Mark  int                    `yaml:"mark,omitempty"`  // fwmark
+	Peers []*TunnelWireguardPeer `yaml:"peers,omitempty"` // WireGuard peers
+
+	// mode=vxlan 专用（netplan 标准 tunnels:mode:vxlan）
+	ID            int    `yaml:"id,omitempty"`           // VXLAN VNI
+	Link          string `yaml:"link,omitempty"`         // 底层设备
+	MacLearning   *bool  `yaml:"mac-learning,omitempty"` // MAC 学习
+	NeighSuppress *bool  `yaml:"neigh-suppress,omitempty"`
+}
+
+// TunnelWireguardPeer netplan tunnels:mode:wireguard 的 peer（与自有 wireguards: 的
+// 扁平 peer 不同，netplan 用嵌套 keys.{public,shared} 与 keepalive）。
+type TunnelWireguardPeer struct {
+	Keys       *WireguardKeys `yaml:"keys,omitempty"`
+	Endpoint   string         `yaml:"endpoint,omitempty"`
+	AllowedIPs []string       `yaml:"allowed-ips,omitempty"`
+	Keepalive  int            `yaml:"keepalive,omitempty"`
+}
+
+// WireguardKeys netplan peer 的密钥对（public 必填，shared 为预共享密钥）。
+type WireguardKeys struct {
+	Public string `yaml:"public,omitempty"`
+	Shared string `yaml:"shared,omitempty"`
 }
 
 // Vrf VRF 配置
@@ -492,6 +533,51 @@ func (c *Config) Normalize() {
 	if c.Network.Version == 0 {
 		c.Network.Version = 2
 	}
+
+	// netplan 把 VXLAN 表达为 tunnels:mode:vxlan，netcfg 内部按 VXLAN 设备处理。
+	// 在此把 tunnels 里的 vxlan 条目移入 Vxlans，使其在 bridge 之前创建（端点常作
+	// bridge 成员）。
+	normalizeTunnelVxlans(&c.Network.Tunnels, &c.Network.Vxlans)
+	for _, ns := range c.Network.Netns {
+		if ns != nil {
+			normalizeTunnelVxlans(&ns.Tunnels, &ns.Vxlans)
+		}
+	}
+}
+
+// normalizeTunnelVxlans 把 tunnels 中 mode=vxlan 的条目转换为 Vxlan 并移入 vxlans。
+func normalizeTunnelVxlans(tunnels *map[string]*Tunnel, vxlans *map[string]*Vxlan) {
+	if *tunnels == nil {
+		return
+	}
+	for name, t := range *tunnels {
+		if t == nil || !strings.EqualFold(t.Mode, "vxlan") {
+			continue
+		}
+		if *vxlans == nil {
+			*vxlans = make(map[string]*Vxlan)
+		}
+		(*vxlans)[name] = t.toVxlan()
+		delete(*tunnels, name)
+	}
+}
+
+// toVxlan 把 netplan tunnels:mode:vxlan 条目转换为 Vxlan。
+func (t *Tunnel) toVxlan() *Vxlan {
+	return &Vxlan{
+		ID:            t.ID,
+		Link:          t.Link,
+		Local:         t.Local,
+		Remote:        t.Remote,
+		Port:          t.Port,
+		TTL:           t.TTL,
+		TOS:           t.TOS,
+		MTU:           t.MTU,
+		Learning:      t.MacLearning,
+		NeighSuppress: t.NeighSuppress,
+		Addresses:     t.Addresses,
+		Routes:        t.Routes,
+	}
 }
 
 // HasDefaultNamespaceConfig 检查是否有 default namespace 配置
@@ -499,6 +585,7 @@ func (c *Config) HasDefaultNamespaceConfig() bool {
 	n := c.Network
 	return len(n.Ethernets) > 0 ||
 		len(n.DummyDevices) > 0 ||
+		len(n.VirtualEthernets) > 0 ||
 		len(n.VethDevices) > 0 ||
 		len(n.MacvlanDevices) > 0 ||
 		len(n.MacvtapDevices) > 0 ||
@@ -517,21 +604,22 @@ func (c *Config) HasDefaultNamespaceConfig() bool {
 // ToNamespace 将顶层配置转换为 Namespace 结构
 func (n *Network) ToNamespace() *Namespace {
 	return &Namespace{
-		Ethernets:      n.Ethernets,
-		DummyDevices:   n.DummyDevices,
-		VethDevices:    n.VethDevices,
-		MacvlanDevices: n.MacvlanDevices,
-		MacvtapDevices: n.MacvtapDevices,
-		IpvlanDevices:  n.IpvlanDevices,
-		Bridges:        n.Bridges,
-		Bonds:          n.Bonds,
-		Vlans:          n.Vlans,
-		Vxlans:         n.Vxlans,
-		Tunnels:        n.Tunnels,
-		Wireguards:     n.Wireguards,
-		Vrfs:           n.Vrfs,
-		TunDevices:     n.TunDevices,
-		TapDevices:     n.TapDevices,
+		Ethernets:        n.Ethernets,
+		DummyDevices:     n.DummyDevices,
+		VirtualEthernets: n.VirtualEthernets,
+		VethDevices:      n.VethDevices,
+		MacvlanDevices:   n.MacvlanDevices,
+		MacvtapDevices:   n.MacvtapDevices,
+		IpvlanDevices:    n.IpvlanDevices,
+		Bridges:          n.Bridges,
+		Bonds:            n.Bonds,
+		Vlans:            n.Vlans,
+		Vxlans:           n.Vxlans,
+		Tunnels:          n.Tunnels,
+		Wireguards:       n.Wireguards,
+		Vrfs:             n.Vrfs,
+		TunDevices:       n.TunDevices,
+		TapDevices:       n.TapDevices,
 	}
 }
 
@@ -568,22 +656,23 @@ func LoadConfig(dirPath string) (*Config, error) {
 
 	merged := &Config{
 		Network: Network{
-			Ethernets:      make(map[string]*Ethernet),
-			DummyDevices:   make(map[string]*Ethernet),
-			VethDevices:    make(map[string]*VethDevice),
-			MacvlanDevices: make(map[string]*MacvlanDevice),
-			MacvtapDevices: make(map[string]*MacvlanDevice),
-			IpvlanDevices:  make(map[string]*IpvlanDevice),
-			Bridges:        make(map[string]*Bridge),
-			Bonds:          make(map[string]*Bond),
-			Vlans:          make(map[string]*Vlan),
-			Vxlans:         make(map[string]*Vxlan),
-			Tunnels:        make(map[string]*Tunnel),
-			Wireguards:     make(map[string]*Wireguard),
-			Vrfs:           make(map[string]*Vrf),
-			TunDevices:     make(map[string]*TunTapDevice),
-			TapDevices:     make(map[string]*TunTapDevice),
-			Netns:          make(map[string]*Namespace),
+			Ethernets:        make(map[string]*Ethernet),
+			DummyDevices:     make(map[string]*Ethernet),
+			VirtualEthernets: make(map[string]*VirtualEthernet),
+			VethDevices:      make(map[string]*VethDevice),
+			MacvlanDevices:   make(map[string]*MacvlanDevice),
+			MacvtapDevices:   make(map[string]*MacvlanDevice),
+			IpvlanDevices:    make(map[string]*IpvlanDevice),
+			Bridges:          make(map[string]*Bridge),
+			Bonds:            make(map[string]*Bond),
+			Vlans:            make(map[string]*Vlan),
+			Vxlans:           make(map[string]*Vxlan),
+			Tunnels:          make(map[string]*Tunnel),
+			Wireguards:       make(map[string]*Wireguard),
+			Vrfs:             make(map[string]*Vrf),
+			TunDevices:       make(map[string]*TunTapDevice),
+			TapDevices:       make(map[string]*TunTapDevice),
+			Netns:            make(map[string]*Namespace),
 		},
 	}
 
@@ -638,6 +727,7 @@ func mergeConfig(dst, src *Config) {
 	// 合并各类设备配置
 	mergeMap(dst.Network.Ethernets, src.Network.Ethernets)
 	mergeMap(dst.Network.DummyDevices, src.Network.DummyDevices)
+	mergeMap(dst.Network.VirtualEthernets, src.Network.VirtualEthernets)
 	mergeMap(dst.Network.VethDevices, src.Network.VethDevices)
 	mergeMap(dst.Network.MacvlanDevices, src.Network.MacvlanDevices)
 	mergeMap(dst.Network.MacvtapDevices, src.Network.MacvtapDevices)
@@ -680,6 +770,11 @@ func mergeNamespace(dst, src *Namespace) {
 		dst.DummyDevices = make(map[string]*Ethernet)
 	}
 	mergeMap(dst.DummyDevices, src.DummyDevices)
+
+	if dst.VirtualEthernets == nil {
+		dst.VirtualEthernets = make(map[string]*VirtualEthernet)
+	}
+	mergeMap(dst.VirtualEthernets, src.VirtualEthernets)
 
 	if dst.VethDevices == nil {
 		dst.VethDevices = make(map[string]*VethDevice)
