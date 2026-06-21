@@ -1243,6 +1243,12 @@ func (m *NetlinkManager) SetLinkLearning(name string, enable bool) error {
 	return writeSysfsBool(fmt.Sprintf("/sys/class/net/%s/brport/learning", name), enable)
 }
 
+// SetBridgePortHairpin 设置网桥端口 hairpin 模式（流量是否可从收到的端口原路发回）。
+// 端口须已加入网桥（brport 目录在 enslave 后才存在）。
+func (m *NetlinkManager) SetBridgePortHairpin(name string, enable bool) error {
+	return writeSysfsBool(fmt.Sprintf("/sys/class/net/%s/brport/hairpin_mode", name), enable)
+}
+
 // SetBridgeParameters 设置网桥设备级 STP 参数。
 //
 // 实现说明：vishvananda/netlink v1.1.0 的 Bridge 结构仅暴露

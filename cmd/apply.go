@@ -507,6 +507,9 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 	// 7b. VXLAN neigh-suppress（brport 属性，须在 vxlan 加入 bridge 之后设置）
 	applyVxlanNeighSuppress(mgr, cfg.Vxlans)
 
+	// 7c. 成员设备 brport 属性（neigh-suppress/hairpin/port-mac-learning，须在 enslave 之后）
+	applyBridgePortAttrs(mgr, cfg.Ethernets)
+
 	// 8. VRF 设备
 	if err := setupVrfs(mgr, nsName, cfg.Vrfs); err != nil {
 		return fmt.Errorf("failed to setup vrfs: %w", err)
@@ -812,6 +815,34 @@ func applyVxlanNeighSuppress(mgr *nl.NetlinkManager, vxlans map[string]*config.V
 			slog.Info("enabling neigh suppress", "device", name)
 			if err := mgr.SetLinkNeighSuppress(name, true); err != nil {
 				slog.Warn("failed to set neigh suppress", "device", name, "error", err)
+			}
+		}
+	}
+}
+
+// applyBridgePortAttrs 在成员设备 enslave 到 bridge 之后，应用其 brport 属性
+// （neigh-suppress / hairpin / port-mac-learning）。须在 setupBridges 之后调用——
+// brport 目录在 enslave 后才存在。仅显式设置（非 nil）的字段才下发；设在非桥接端口
+// 的设备上会失败 → 告警（属用户配置错误，不静默）。
+func applyBridgePortAttrs(mgr *nl.NetlinkManager, devices map[string]*config.Ethernet) {
+	for _, name := range sortedKeys(devices) {
+		cfg := devices[name]
+		if cfg == nil {
+			continue
+		}
+		if cfg.NeighSuppress != nil {
+			if err := mgr.SetLinkNeighSuppress(name, *cfg.NeighSuppress); err != nil {
+				slog.Warn("failed to set neigh-suppress (not a bridge port?)", "device", name, "error", err)
+			}
+		}
+		if cfg.Hairpin != nil {
+			if err := mgr.SetBridgePortHairpin(name, *cfg.Hairpin); err != nil {
+				slog.Warn("failed to set hairpin (not a bridge port?)", "device", name, "error", err)
+			}
+		}
+		if cfg.PortMacLearning != nil {
+			if err := mgr.SetLinkLearning(name, *cfg.PortMacLearning); err != nil {
+				slog.Warn("failed to set port-mac-learning (not a bridge port?)", "device", name, "error", err)
 			}
 		}
 	}
@@ -1389,9 +1420,36 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 		}
 	}
 
-	// 启用设备
-	if err := mgr.SetLinkUp(name); err != nil {
-		return fmt.Errorf("failed to set %s up: %w", name, err)
+	// activation-mode：manual/off 不自动 up（off 额外强制 down），交管理员控制。
+	// 其余配置（地址等）仍下发——「配置但不激活」。
+	switch strings.ToLower(cfg.ActivationMode) {
+	case "off":
+		slog.Info("activation-mode=off; forcing link down", "device", name)
+		if err := mgr.SetLinkDown(name); err != nil {
+			slog.Warn("failed to set link down", "device", name, "error", err)
+		}
+	case "manual":
+		slog.Info("activation-mode=manual; not bringing link up (admin-controlled)", "device", name)
+	default:
+		if err := mgr.SetLinkUp(name); err != nil {
+			return fmt.Errorf("failed to set %s up: %w", name, err)
+		}
+	}
+
+	// ignore-carrier / critical：netcfg 直接经 netlink 下发地址，不检测 carrier，
+	// 也不随 carrier 丢失/重启清除配置——这两个 networkd 概念在直接 netlink 架构下
+	// 本就等价满足，无需特殊处理（记 debug，避免被误解为静默忽略）。
+	if cfg.IgnoreCarrier != nil && *cfg.IgnoreCarrier {
+		slog.Debug("ignore-carrier: netcfg programs addresses regardless of carrier (already equivalent)", "device", name)
+	}
+	if cfg.Critical != nil && *cfg.Critical {
+		slog.Debug("critical: netcfg does not release addresses on carrier loss/restart (already equivalent)", "device", name)
+	}
+	// optional-addresses：影响 online 等待粒度（地址类型级）。netcfg 的 wait-online
+	// 为链路级基本判定，暂不按地址类型细分；schema 已保留，记 debug。
+	if len(cfg.OptionalAddresses) > 0 {
+		slog.Debug("optional-addresses parsed; netcfg wait-online is link-level (per-address-type online not yet refined)",
+			"device", name, "types", strings.Join(cfg.OptionalAddresses, ","))
 	}
 
 	// 处理 IPv6 RA/SLAAC
@@ -1457,6 +1515,11 @@ func setupDeviceWithDHCP(mgr *nl.NetlinkManager, name string, cfg *config.Ethern
 		slog.Info("starting DHCPv4", "device", name)
 		dhcpMgr := nl.NewDHCPManager()
 		ov := dhcpOverridesToNl(cfg.DHCP4Overrides)
+
+		// dhcp-identifier（mac/duid）：client-id 来源
+		if cfg.DHCPIdentifier != "" {
+			dhcpMgr.SetDHCPIdentifier(cfg.DHCPIdentifier)
+		}
 
 		// 请求侧 hostname overrides（send-hostname / hostname）
 		if o := cfg.DHCP4Overrides; o != nil {

@@ -57,6 +57,7 @@ type DHCPManager struct {
 	timeout    time.Duration
 	retries    int
 	hostname   string
+	dhcpIdent  string // dhcp-identifier: "mac" 用 MAC，其余/空走客户端默认
 	externalV4 string
 	externalV6 string
 }
@@ -101,6 +102,10 @@ func (m *DHCPManager) SetSendHostname(send bool) {
 		m.hostname = ""
 	}
 }
+
+// SetDHCPIdentifier 设置 DHCPv4 client-id 来源（netplan dhcp-identifier）。
+// "mac" 用接口 MAC 作为 client-id；其余/空走客户端默认（DUID）。
+func (m *DHCPManager) SetDHCPIdentifier(id string) { m.dhcpIdent = strings.ToLower(id) }
 func (m *DHCPManager) HasClient() (v4, v6 bool) {
 	// 纯 Go 客户端始终内建可用（运行期需 CAP_NET_RAW）；外部客户端作为回退。
 	return true, true
@@ -136,6 +141,12 @@ func (m *DHCPManager) requestDHCPv4PureGo(ctx context.Context, ifaceName string)
 	client.SetRetries(m.retries)
 	if m.hostname != "" {
 		client.SetHostname(m.hostname)
+	}
+	// dhcp-identifier=mac：用接口 MAC 作为 client-id（option 61: htype=1 + MAC）。
+	if m.dhcpIdent == "mac" {
+		if iface, err := net.InterfaceByName(ifaceName); err == nil && len(iface.HardwareAddr) > 0 {
+			client.SetClientID(append([]byte{0x01}, iface.HardwareAddr...))
+		}
 	}
 	p, err := client.Request(ctx)
 	if err != nil {

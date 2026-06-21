@@ -135,18 +135,19 @@
 - 已知限制：① match 主要面向 default ns 物理网卡，driver 匹配依赖 host /sys，netns 内匹配为边界情况；② state 跟踪按 config id 记录，set-name 重命名后地址*移除*的 diff 可能不匹配实际设备名（ethernet 为 system 设备不删除，apply 经 HasAddress 幂等，影响有限）——留待 state 重构时处理
 - 验收：`GOOS=linux go build/vet` 通过；运行期 `ip link`（重命名）/ glob 匹配验证待真机（见 M5）
 
-### P1-6 其余通用属性 · **S~M** · 🟡 部分完成
+### P1-6 其余通用属性 · **S~M** · ✅ 完成（真实现 3 + 等价说明 3）
 已完成（直接 netlink/sysctl 可干净落地）：
 - [x] **Tunnel `tos`**：`config.Tunnel` 补 `TOS` 字段 + setupTunnels 传入（`TunnelOptions`/`AddTunnel` 本就支持，仅缺这两处接线）
 - [x] **`ipv6-mtu`**：`config.Ethernet` 补 `IPv6MTU` + `netlink.SetIPv6MTU`（sysctl `/proc/sys/net/ipv6/conf/<dev>/mtu`）+ setupDeviceWithDHCP 接线
 
-延后（需后端语义 / DHCP 客户端 / schema 设计，不适合在直接 netlink 下硬塞）：
-- [ ] **bridge 端口 `neigh-suppress` / `hairpin` / `port-mac-learning`**：均为 brport sysfs 属性（neigh-suppress/learning 已有 netlink helper，hairpin 需加 `hairpin_mode` helper）。难点是 schema——netplan 把这些放在被桥接的成员设备上，需在成员 config 加字段并在 enslave 后应用。建议作为独立小特性专门做
-- [ ] **`activation-mode`**（manual/off）：networkd 概念。"off"=不 up 设备可部分映射，但跨所有 setup 函数的 up/down 流程，需统一改造
-- [ ] **`ignore-carrier`**：networkd ConfigureWithoutCarrier，无干净的直接 netlink 等价
-- [ ] **`critical`**：networkd critical-connection（down 时不清配置），netcfg 本就不随 carrier 清配置，语义不直接对应
-- [ ] **`dhcp-identifier`**（mac/duid）：需 DHCP 客户端集成，绑定到 P2-4 纯 Go DHCP
-- [ ] **`optional-addresses`**：online 语义，绑定到 wait-online（P0-5 的延伸）
+真实现（直接 netlink/sysfs/DHCP 可干净生效）：
+- [x] **`activation-mode`**（manual/off）：setupDeviceWithDHCP 用 switch 替换 SetLinkUp——manual 不 up、off 强制 down，其余配置仍下发（配置但不激活）。真机验证：manual/off 设备 DOWN 但地址已配，默认设备 UP
+- [x] **bridge 端口 `neigh-suppress`/`hairpin`/`port-mac-learning`**：成员 Ethernet 加 3 个 *bool 字段；新增 `SetBridgePortHairpin`（hairpin_mode sysfs）；`applyBridgePortAttrs` 在 setupBridges 之后（brport 目录就绪）应用。真机验证：hairpin_mode=1/neigh_suppress=1/learning=0 与配置一致
+- [x] **`dhcp-identifier`**（mac/duid）：`DHCPManager.SetDHCPIdentifier`，mac 时设 client-id=option61(htype1+MAC)，注入纯 Go 客户端（P2-4）；duid/空走客户端默认
+等价说明（netcfg 直接 netlink 本就满足的 networkd 概念，加 schema + debug 说明，不静默忽略）：
+- [x] **`ignore-carrier`**：netcfg 直接下发地址不查 carrier，已等价
+- [x] **`critical`**：netcfg 不随 carrier 丢失/重启清配置，已等价
+- [x] **`optional-addresses`**：schema 保留；netcfg wait-online 为链路级，地址类型级 online 细分暂未做（debug 说明）
 - 验收（已完成项）：`GOOS=linux go build/vet` 通过；运行期 `ip -d link`(tunnel tos) / `sysctl ...ipv6.conf.<dev>.mtu` 待真机（见 M5）
 
 ---

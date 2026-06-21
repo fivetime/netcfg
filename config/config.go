@@ -168,6 +168,18 @@ type Ethernet struct {
 	GenericSegmentationOffload *bool `yaml:"generic-segmentation-offload,omitempty"`
 	GenericReceiveOffload      *bool `yaml:"generic-receive-offload,omitempty"`
 	LargeReceiveOffload        *bool `yaml:"large-receive-offload,omitempty"`
+
+	// 通用属性（P1-6）
+	ActivationMode    string   `yaml:"activation-mode,omitempty"`    // manual/off：不自动 up（off 强制 down）
+	DHCPIdentifier    string   `yaml:"dhcp-identifier,omitempty"`    // mac/duid：DHCPv4 client-id 来源
+	IgnoreCarrier     *bool    `yaml:"ignore-carrier,omitempty"`     // netcfg 直接 netlink 下发，本就不依赖 carrier
+	Critical          *bool    `yaml:"critical,omitempty"`           // netcfg 不随 carrier/重启清配置，本就等价
+	OptionalAddresses []string `yaml:"optional-addresses,omitempty"` // online 判定时不必等待的地址类型
+
+	// bridge 端口属性（成员设备上，enslave 后经 brport sysfs 应用）
+	NeighSuppress   *bool `yaml:"neigh-suppress,omitempty"`
+	Hairpin         *bool `yaml:"hairpin,omitempty"`
+	PortMacLearning *bool `yaml:"port-mac-learning,omitempty"`
 }
 
 // Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。
