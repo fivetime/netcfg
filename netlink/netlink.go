@@ -1445,6 +1445,16 @@ func (m *NetlinkManager) AddRoute(dst, gw, dev string, metric, table int) error 
 	})
 }
 
+// SetEswitchMode 设置 PF 的 SR-IOV eswitch 模式（legacy/switchdev），经 devlink netlink
+// （vishvananda/netlink），替代 devlink 命令。pci 为 PF 的 PCI 地址（如 0000:03:00.0）。
+func (m *NetlinkManager) SetEswitchMode(pci, mode string) error {
+	dev, err := m.handle.DevLinkGetDeviceByName("pci", pci)
+	if err != nil {
+		return fmt.Errorf("devlink get pci/%s: %w", pci, err)
+	}
+	return m.handle.DevLinkSetEswitchMode(dev, mode)
+}
+
 // RouteOptions 表示一条路由的完整可配置项。
 // 字段为零值（空字符串 / 0 / false）表示未设置，沿用内核默认。
 type RouteOptions struct {

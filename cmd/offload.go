@@ -1,28 +1,30 @@
 /*
 Copyright © 2024 netcfg authors
 
-网卡 offload 配置：把 netplan 的 offload 字段经 ethtool -K 下发。
-内核 offload feature API 有分组/版本差异（如 tx-checksum 是一组），ethtool 的
-友好名映射最稳；ethtool 是标配小工具，仅在配置了 offload 时调用、缺失则告警跳过
-（best-effort，与外部 DHCP 客户端/iw 一致，不引入硬依赖）。
+网卡 offload / Wake-on-LAN：经 ethtool ioctl（netlink 层封装 github.com/safchain/ethtool，
+纯 Go，无需 ethtool 命令）。offload 的 netplan 字段 → 内核 feature 名映射在此完成；group 类
+（tx-checksum/tso）按设备实际 feature 列表展开，等价 ethtool CLI 的分组行为。
 */
 
 package cmd
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/netcfg/netcfg/config"
+	nl "github.com/netcfg/netcfg/netlink"
 )
 
 // applyEthernetExtras 应用其它物理网卡杂项：wakeonlan / infiniband-mode / emit-lldp。
-func applyEthernetExtras(name string, cfg *config.Ethernet) {
+func applyEthernetExtras(mgr *nl.NetlinkManager, name string, cfg *config.Ethernet) {
 	if cfg.Wakeonlan {
-		applyWakeonlan(name)
+		if err := mgr.SetWakeOnLanMagic(name); err != nil {
+			slog.Warn("failed to set wakeonlan", "device", name, "error", err)
+		} else {
+			slog.Info("enabled wake-on-lan", "device", name)
+		}
 	}
 	if cfg.InfinibandMode != "" {
 		applyInfinibandMode(name, cfg.InfinibandMode)
@@ -35,23 +37,9 @@ func applyEthernetExtras(name string, cfg *config.Ethernet) {
 	}
 }
 
-// applyWakeonlan 经 ethtool 启用 Wake-on-LAN（magic packet）。
-func applyWakeonlan(name string) {
-	if _, err := exec.LookPath("ethtool"); err != nil {
-		slog.Warn("ethtool not found; wakeonlan skipped", "device", name)
-		return
-	}
-	if out, err := exec.Command("ethtool", "-s", name, "wol", "g").CombinedOutput(); err != nil {
-		slog.Warn("failed to set wakeonlan", "device", name,
-			"error", err, "output", strings.TrimSpace(string(out)))
-		return
-	}
-	slog.Info("enabled wake-on-lan", "device", name)
-}
-
 // applyInfinibandMode 经 sysfs 设置 IPoIB 模式（connected/datagram）。
 func applyInfinibandMode(name, mode string) {
-	path := fmt.Sprintf("/sys/class/net/%s/mode", name)
+	path := "/sys/class/net/" + name + "/mode"
 	if err := os.WriteFile(path, []byte(mode), 0644); err != nil {
 		slog.Warn("failed to set infiniband-mode (not an IPoIB device?)",
 			"device", name, "mode", mode, "error", err)
@@ -60,45 +48,79 @@ func applyInfinibandMode(name, mode string) {
 	slog.Info("set infiniband mode", "device", name, "mode", mode)
 }
 
-// applyOffload 按 cfg 中已设置（非 nil）的 offload 字段调用 ethtool -K。
-// 一次性把所有字段拼成一条 ethtool 命令下发。
-func applyOffload(name string, cfg *config.Ethernet) {
-	// netplan 字段 -> ethtool -K feature 名（短名优先；tcp6 无短名用完整 feature 名）
-	feats := []struct {
-		val  *bool
-		flag string
+// applyOffload 按 cfg 中已设置（非 nil）的 offload 字段经 ethtool ioctl 下发。
+// netplan 字段 → 内核 feature 名：单 feature 直接匹配；group（tx-checksum/tso）按设备
+// 实际拥有的 feature 名展开（等价 ethtool -K 的分组），只设设备真实存在的 feature。
+func applyOffload(mgr *nl.NetlinkManager, name string, cfg *config.Ethernet) {
+	rules := []struct {
+		val   *bool
+		match func(string) bool
 	}{
-		{cfg.ReceiveChecksumOffload, "rx"},
-		{cfg.TransmitChecksumOffload, "tx"},
-		{cfg.TCPSegmentationOffload, "tso"},
-		{cfg.TCP6SegmentationOffload, "tx-tcp6-segmentation"},
-		{cfg.GenericSegmentationOffload, "gso"},
-		{cfg.GenericReceiveOffload, "gro"},
-		{cfg.LargeReceiveOffload, "lro"},
+		{cfg.ReceiveChecksumOffload, eqFeat("rx-checksum")},
+		{cfg.TransmitChecksumOffload, prefixFeat("tx-checksum-")}, // group
+		{cfg.TCPSegmentationOffload, inFeat( // tso（IPv4 各变体）
+			"tx-tcp-segmentation", "tx-tcp-ecn-segmentation", "tx-tcp-mangleid-segmentation")},
+		{cfg.TCP6SegmentationOffload, eqFeat("tx-tcp6-segmentation")},
+		{cfg.GenericSegmentationOffload, eqFeat("tx-generic-segmentation")},
+		{cfg.GenericReceiveOffload, eqFeat("rx-gro")},
+		{cfg.LargeReceiveOffload, eqFeat("rx-lro")},
+	}
+	// 是否有任何 offload 字段被设置
+	any := false
+	for _, r := range rules {
+		if r.val != nil {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return
 	}
 
-	args := []string{"-K", name}
-	for _, f := range feats {
-		if f.val == nil {
+	cur, err := mgr.EthtoolFeatures(name)
+	if err != nil {
+		slog.Warn("offload skipped: cannot read NIC features", "device", name, "error", err)
+		return
+	}
+	want := map[string]bool{}
+	for _, r := range rules {
+		if r.val == nil {
 			continue
 		}
-		args = append(args, f.flag, onOff(*f.val))
+		for feat := range cur {
+			if r.match(feat) {
+				want[feat] = *r.val
+			}
+		}
 	}
-	if len(args) == 2 { // 只有 "-K name"，没有任何 feature
+	if len(want) == 0 {
 		return
 	}
-
-	if _, err := exec.LookPath("ethtool"); err != nil {
-		slog.Warn("ethtool not found; offload settings skipped (install ethtool)", "device", name)
-		return
+	slog.Info("applying offload settings", "device", name, "features", offloadSummary(want))
+	if err := mgr.EthtoolChange(name, want); err != nil {
+		// 虚拟设备/固定 feature 会失败——非致命，告警即可
+		slog.Warn("failed to apply offload settings", "device", name, "error", err)
 	}
+}
 
-	slog.Info("applying offload settings", "device", name, "args", strings.Join(args[2:], " "))
-	if out, err := exec.Command("ethtool", args...).CombinedOutput(); err != nil {
-		// 虚拟设备/不支持的 feature 会失败——非致命，告警即可
-		slog.Warn("failed to apply offload settings", "device", name,
-			"error", err, "output", strings.TrimSpace(string(out)))
+func eqFeat(s string) func(string) bool { return func(f string) bool { return f == s } }
+func prefixFeat(p string) func(string) bool {
+	return func(f string) bool { return strings.HasPrefix(f, p) }
+}
+func inFeat(names ...string) func(string) bool {
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
 	}
+	return func(f string) bool { return set[f] }
+}
+
+func offloadSummary(want map[string]bool) string {
+	parts := make([]string, 0, len(want))
+	for f, v := range want {
+		parts = append(parts, f+"="+onOff(v))
+	}
+	return strings.Join(parts, " ")
 }
 
 func onOff(b bool) string {

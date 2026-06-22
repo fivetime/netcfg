@@ -11,7 +11,7 @@ A network configuration tool compatible with netplan syntax, with native support
 - **VXLAN/EVPN Ready**: Full VXLAN support including FDB management, ARP suppress, external mode
 - **SRv6 (seg6)**: kernel Segment Routing over IPv6 — transit steering (`routes[].encap`) and all endpoint behaviors (End/End.X/End.T/End.DX2/DX4/DX6/DT4/DT6/DT46/B6/B6.Encaps). See `docs/srv6-design.md`
 - **WiFi & 802.1x**: Generates wpa_supplicant config and spawns it directly (init-agnostic) — PSK/SAE(WPA3)/EAP enterprise
-- **NIC tuning**: offload (ethtool), SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode
+- **NIC tuning**: offload, SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode — via netlink/ethtool-ioctl (pure Go, no `ethtool`/`devlink` CLI)
 - **Pure-Go DHCP**: Built-in DHCPv4/v6 client (falls back to external clients), with DHCP overrides
 - **init-agnostic**: No dependency on systemd-networkd or D-Bus; runs under systemd / OpenRC / runit / etc. Optional supervision templates in `init/`
 - **VPP backend (optional)**: program VPP's userspace dataplane via GoVPP using the same netplan-style YAML — interfaces (af-packet/loopback/dpdk/avf), addresses, routes, VLANs, bridges, bonds, VXLAN. Per-device opt-in; kernel and VPP devices coexist. See `docs/vpp-backend-design.md`
@@ -375,7 +375,7 @@ next apply. Requires a kernel with `CONFIG_IPV6_SEG6_LWTUNNEL`.
 | Direct netlink API | ❌ | ✅ |
 | init system | systemd-leaning | init-agnostic (systemd/OpenRC/runit/…) |
 | systemd-networkd / D-Bus dependency | required | none |
-| External command dependency | ip, networkctl | none for core (optional: ethtool/devlink for tuning, wpa_supplicant for wifi/802.1x) |
+| External command dependency | ip, networkctl | none for core or NIC tuning (offload/SR-IOV via netlink/ioctl); optional: wpa_supplicant for wifi/802.1x, resolvectl for DNS |
 
 ## Why netcfg?
 

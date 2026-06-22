@@ -17,12 +17,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/netcfg/netcfg/config"
+	nl "github.com/netcfg/netcfg/netlink"
 )
 
 // applySRIOV 在 PF 上应用 SR-IOV 设置（VF 数量 + eswitch 模式）。
@@ -107,7 +107,8 @@ func rebindVFs(pf string) {
 	}
 }
 
-// setEswitchMode 通过 devlink 设置 PF 的 eswitch 模式（legacy/switchdev）。
+// setEswitchMode 经 devlink netlink（vishvananda/netlink）设置 PF 的 eswitch 模式
+// （legacy/switchdev），替代 devlink 命令。
 func setEswitchMode(pf, mode string) {
 	target, err := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device", pf))
 	if err != nil {
@@ -116,13 +117,14 @@ func setEswitchMode(pf, mode string) {
 	}
 	addr := filepath.Base(target)
 
-	if _, err := exec.LookPath("devlink"); err != nil {
-		slog.Warn("devlink not found; embedded-switch-mode skipped (install iproute2)", "device", pf)
+	mgr, err := nl.New()
+	if err != nil {
+		slog.Warn("embedded-switch-mode skipped: cannot open netlink", "device", pf, "error", err)
 		return
 	}
-	if out, err := exec.Command("devlink", "dev", "eswitch", "set", "pci/"+addr, "mode", mode).CombinedOutput(); err != nil {
-		slog.Warn("failed to set embedded-switch-mode", "device", pf, "mode", mode,
-			"error", err, "output", strings.TrimSpace(string(out)))
+	defer mgr.Close()
+	if err := mgr.SetEswitchMode(addr, mode); err != nil {
+		slog.Warn("failed to set embedded-switch-mode", "device", pf, "mode", mode, "error", err)
 		return
 	}
 	slog.Info("set embedded-switch-mode", "device", pf, "mode", mode, "pci", addr)

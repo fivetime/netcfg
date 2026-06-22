@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safchain/ethtool"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
 	"github.com/vishvananda/netns"
@@ -328,6 +329,42 @@ network:
 	run(t, "apply")
 	link := mustLink(t, "itidem0")
 	assertHasAddr(t, nil, link, "10.97.0.1/24")
+}
+
+// TestOffload 验证 offload 经 ethtool ioctl（safchain，纯 Go，无 ethtool CLI）真正生效。
+// veth 默认 gro/gso 为 on，配置为 false 后用 safchain 读回断言已变 off。
+func TestOffload(t *testing.T) {
+	const dev = "itoff0"
+	_ = netlink.LinkDel(&netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: dev}})
+	veth := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: dev}, PeerName: dev + "p"}
+	if err := netlink.LinkAdd(veth); err != nil {
+		t.Fatalf("create veth %s: %v", dev, err)
+	}
+	defer netlink.LinkDel(veth)
+
+	e, err := ethtool.NewEthtool()
+	if err != nil {
+		t.Skipf("ethtool ioctl unavailable: %v", err)
+	}
+	defer e.Close()
+	if f, _ := e.Features(dev); !f["tx-generic-segmentation"] {
+		t.Skip("veth tx-generic-segmentation not on by default; cannot prove toggle")
+	}
+
+	apply(t, `
+network:
+  version: 2
+  ethernets:
+    `+dev+`:
+      generic-segmentation-offload: false
+`)
+	feats, err := e.Features(dev)
+	if err != nil {
+		t.Fatalf("read features: %v", err)
+	}
+	if feats["tx-generic-segmentation"] {
+		t.Errorf("tx-generic-segmentation still on after generic-segmentation-offload: false (offload via safchain ioctl failed)")
+	}
 }
 
 // --- SRv6 (seg6) ---

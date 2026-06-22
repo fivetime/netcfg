@@ -167,7 +167,7 @@
 | MTU 配置 | ✅ | 最大传输单元 |
 | MAC 地址 | ✅ | 自定义硬件地址 |
 | 混杂模式 | ⏳ | promiscuous mode（未实现） |
-| Wake-on-LAN | ✅ | 远程唤醒（ethtool wol） |
+| Wake-on-LAN | ✅ | 远程唤醒（ethtool ioctl，纯 Go，无 CLI） |
 | 链路检测 | ✅ | carrier/dormant 状态（status 显示） |
 | optional 标记 | ✅ | 设备可选，不阻塞启动（status --wait） |
 | DNS 配置 | ✅ | nameservers/search domains（resolvectl/resolv.conf） |
@@ -175,7 +175,7 @@
 | activation-mode | ✅ | manual/off：配置但不激活（off 强制 down） |
 | 802.1X / EAP（有线） | ✅ | auth 块 → 生成 wpa_supplicant 配置并直接 spawn（init-agnostic） |
 | WiFi access-points | ✅ | PSK/SAE(WPA3)/EAP 企业/开放、mode/band/channel/bssid/hidden、regulatory-domain |
-| 网卡 offload | ✅ | rx/tx-checksum、tso/tso6/gso/gro/lro（ethtool -K） |
+| 网卡 offload | ✅ | rx/tx-checksum、tso/tso6/gso/gro/lro（ethtool ioctl，纯 Go，无 CLI） |
 | SR-IOV | ✅ | virtual-function-count、embedded-switch-mode、`netcfg rebind`（VF 重绑） |
 | InfiniBand | ✅ | infiniband-mode（connected/datagram，IPoIB） |
 | bridge 端口属性 | ✅ | hairpin、neigh-suppress、port-mac-learning |
