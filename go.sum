@@ -54,6 +54,8 @@ github.com/vishvananda/netlink v1.3.2-0.20260610182031-c05a276ed0e0 h1:ljtwwUHGe
 github.com/vishvananda/netlink v1.3.2-0.20260610182031-c05a276ed0e0/go.mod h1:lEui7SPMd9fgxzHVGRAvTxsBGCF6PRH81o2kLWLWHgw=
 github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
+go.fd.io/govpp v0.14.0-alpha.0.20260608092747-3c1110da3419 h1:ATc/YBZp8Vsdl/I5VV0wx+kIbPZQmXfewfiLbI/mIxM=
+go.fd.io/govpp v0.14.0-alpha.0.20260608092747-3c1110da3419/go.mod h1:gjPnBg69MJVwMRd5N3nztQ1f6WzXsyrlc7v5hRzqlII=
 go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.org/x/crypto v0.47.0 h1:V6e3FRj+n4dbpw86FJ8Fv7XVOql7TEwpHapKoMJ/GO8=

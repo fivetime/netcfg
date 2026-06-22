@@ -2,9 +2,8 @@ module github.com/netcfg/netcfg
 
 go 1.25.0
 
-// VPP 后端用 GoVPP（go.fd.io/govpp，要求 go 1.25）。开发期指向本地 govpp 源，
-// 版本精确、离线；正式发布前可改为带版本的 require。
-replace go.fd.io/govpp => C:/MyProjects/OpenSource/Kubernetes/govpp
+// VPP 后端用 GoVPP（go.fd.io/govpp，要求 go 1.25）。直接 require 上游版本，
+// 使 CI / 发布构建在无本地源时也可复现（曾用本地路径 replace，CI 无法构建）。
 
 require (
 	github.com/insomniacslk/dhcp v0.0.0-20260603135910-a415979eb11e
@@ -14,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/vishvananda/netlink v1.3.2-0.20260610182031-c05a276ed0e0
 	github.com/vishvananda/netns v0.0.5
-	go.fd.io/govpp v0.0.0-00010101000000-000000000000
+	go.fd.io/govpp v0.14.0-alpha.0.20260608092747-3c1110da3419
 	golang.org/x/sys v0.40.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	gopkg.in/yaml.v3 v3.0.1
