@@ -147,6 +147,7 @@ type NDProxy struct {
 type NDProxyRule struct {
 	Prefix   string `yaml:"prefix"`             // 代答的 IPv6 前缀（CIDR）
 	Neighbor string `yaml:"neighbor,omitempty"` // 回 NA 的 TLLA（MAC）；缺省=本接口 MAC（本机进转发路径）
+	Mode     string `yaml:"mode,omitempty"`     // static(默认，命中即答) | auto(目标路由出口非本口才答)
 }
 
 // Namespace 网络命名空间配置

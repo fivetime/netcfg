@@ -49,6 +49,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// 加载并应用配置
+	ndpMgr := newNDPManager()
+
 	cfg, err := config.LoadConfig(configDir)
 	if err != nil {
 		slog.Warn("failed to load config", "error", err)
@@ -56,6 +58,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		if err := applyConfigWithDaemon(cfg, daemon); err != nil {
 			slog.Error("failed to apply config", "error", err)
 		}
+		ndpMgr.Reload(cfg) // 启动 NDP 代答器
 	}
 
 	// 等待信号
@@ -78,8 +81,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			if err := applyConfigWithDaemon(cfg, daemon); err != nil {
 				slog.Error("failed to apply config", "error", err)
 			}
+			ndpMgr.Reload(cfg) // 重载 NDP 代答器
 		case syscall.SIGTERM, syscall.SIGINT:
 			slog.Info("received shutdown signal", "signal", sig)
+			ndpMgr.Stop()
 			daemon.Stop()
 			slog.Info("daemon stopped")
 			return nil

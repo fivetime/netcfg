@@ -32,6 +32,11 @@ func validateNDProxyBlock(scope string, n *NDProxy) error {
 				return fmt.Errorf("%s: ndp-proxy rule neighbor %q is not a valid MAC: %w", scope, r.Neighbor, err)
 			}
 		}
+		switch r.Mode {
+		case "", "static", "auto":
+		default:
+			return fmt.Errorf("%s: ndp-proxy rule mode %q invalid (static|auto)", scope, r.Mode)
+		}
 	}
 	return nil
 }

@@ -462,14 +462,14 @@
 - [x] **ND2-5** 每接口一 goroutine + 优雅退出（context）
 
 ### ND3 接线
-- [ ] **ND3-1** apply：校验 + 下发 addresses 内核 proxy_ndp + 为有 rules 的接口设 allmulti（不常驻）
-- [ ] **ND3-2** daemon：启动各接口响应器 goroutine（与 DHCP 续约并存）；SIGHUP 重载
-- [ ] **ND3-3** 停用/移除接口时关 allmulti + 停 goroutine
+- [x] **ND3-1** addresses 内核 proxy_ndp 在 apply 下发；allmulti 改由 daemon 随响应器生命周期管（更内聚）
+- [x] **ND3-2** daemon：启动各接口响应器 goroutine（与 DHCP 续约并存）；SIGHUP 重载
+- [x] **ND3-3** 停用/移除接口时关 allmulti + 停 goroutine
 
 ### ND4 验证（本地，不依赖 machine1）
 - [x] **ND4-1** 单测：NS 解析 + NA 构造（TLLA=外部 MAC、flags）字节级断言
-- [ ] **ND4-2** 集成测试（容器，veth 对）：一端发 NS（造目标在前缀内），另一端 netcfg 响应器回 NA，抓包断言 TLLA=配置 MAC
-- [ ] **ND4-3** addresses 子键回归（内核 proxy_ndp 仍按 TestNDProxy 通过）
+- [x] **ND4-2** 集成测试（容器，veth 对）：一端发 NS（造目标在前缀内），另一端 netcfg 响应器回 NA，抓包断言 TLLA=配置 MAC
+- [x] **ND4-3** addresses 子键回归（内核 proxy_ndp 仍按 TestNDProxy 通过）
 
 ### ND5 示例 + 文档 + memory
 - [ ] **ND5-1** example：ndp-proxy 块（addresses + rules）示例
