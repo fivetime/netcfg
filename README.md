@@ -9,6 +9,7 @@ A network configuration tool compatible with netplan syntax, with native support
 - **Direct Netlink API**: No dependency on `ip` command, better performance and security
 - **Full Device Support**: ethernet, wifi, dummy, veth, macvlan, macvtap, ipvlan, bridge, bond, vlan, vxlan, vrf, tunnel (incl. wireguard via `tunnels:mode`), tun, tap
 - **VXLAN/EVPN Ready**: Full VXLAN support including FDB management, ARP suppress, external mode
+- **SRv6 (seg6)**: kernel Segment Routing over IPv6 — transit steering (`routes[].encap`) and all endpoint behaviors (End/End.X/End.T/End.DX2/DX4/DX6/DT4/DT6/DT46/B6/B6.Encaps). See `docs/srv6-design.md`
 - **WiFi & 802.1x**: Generates wpa_supplicant config and spawns it directly (init-agnostic) — PSK/SAE(WPA3)/EAP enterprise
 - **NIC tuning**: offload (ethtool), SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode
 - **Pure-Go DHCP**: Built-in DHCPv4/v6 client (falls back to external clients), with DHCP overrides
@@ -327,11 +328,46 @@ NAT applies live via the nat44_ed / nat64 / nat66 plugins. Re-apply is idempoten
 (adding existing entries is a no-op), and removing a NAT entry/interface/pool from
 config reaps it from VPP on the next apply.
 
+## Kernel SRv6 (seg6, netcfg extension)
+
+netcfg programs kernel **SRv6 (Segment Routing over IPv6)** — not a netplan feature.
+Two parts: **transit** steering on any route via `encap`, and **endpoint** behaviors
+(local SIDs) plus `seg6_enabled` under a top-level (or per-netns) `srv6:` section.
+See `docs/srv6-design.md` and `example/srv6/`.
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      routes:
+        - to: 2001:db8:ff::/48          # steer into an SR policy
+          encap: { type: seg6, mode: encap, segments: [2001:db8:a::1, 2001:db8:b::1] }
+  vrfs:
+    cust: { table: 100 }
+  srv6:
+    enabled: true                        # net.ipv6.conf.all.seg6_enabled
+    interfaces: [eth0]                    # per-interface seg6_enabled
+    device: lo-srv6                       # SID anchor (real device; auto dummy "srv6" if unset)
+    local-sids:
+      - { sid: 2001:db8:0:a::100, action: End }
+      - { sid: 2001:db8:0:a::b00, action: End.X, nh6: 2001:db8:1::2 }
+      - { sid: 2001:db8:0:a::d6,  action: End.DT6, table: 100 }
+      - { sid: 2001:db8:0:a::d4,  action: End.DT4, vrf-table: 100 }
+```
+
+Endpoint actions: `End`, `End.X`, `End.T`, `End.DX2`, `End.DX4`, `End.DX6`,
+`End.DT4`, `End.DT6`, `End.DT46`, `End.B6`, `End.B6.Encaps`. SIDs are anchored on a
+real device (the kernel silently drops seg6local on `lo`); `End.DT4/DT46` auto-enable
+`net.vrf.strict_mode`. Idempotent (`RouteReplace`); removed SIDs are reaped on the
+next apply. Requires a kernel with `CONFIG_IPV6_SEG6_LWTUNNEL`.
+
 ## Comparison with netplan
 
 | Feature | netplan | netcfg |
 |---------|---------|--------|
 | YAML syntax | ✅ | ✅ (compatible) |
+| Kernel SRv6 (seg6) | ❌ | ✅ (transit + endpoint) |
 | VPP dataplane backend | ❌ | ✅ (GoVPP) |
 | systemd-networkd backend | ✅ | ❌ (direct netlink) |
 | NetworkManager backend | ✅ | ❌ |
