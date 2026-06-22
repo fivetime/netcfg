@@ -1,0 +1,27 @@
+# NDP 代理（统一 ndp-proxy 块）。netcfg 扩展，见 docs/ndp-responder-design.md。
+# 两部分，可单用或并用：
+#   addresses: 内核 proxy_ndp（逐 /128，用本机 MAC，apply 即生效，无需 daemon）
+#   rules:     内置纯 Go 响应器（按前缀代答，可指定外部 MAC；需 netcfg daemon 常驻）
+network:
+  version: 2
+  ethernets:
+    # 等价于 ndppd:  proxy enp2s0 { router yes; rule <prefix>/80 { static; neighbor <mac> } }
+    enp2s0:
+      ndp-proxy:
+        router: true                     # 回 NA 置 Router(R) 标志（代答路由器地址时用 true）
+        rules:
+          - prefix: 2400:2410:ef28:2a00:1::/80
+            neighbor: 84:47:09:0b:7d:4a   # 告诉二层：该前缀在这个 MAC，不在本网卡
+          - prefix: 2400:2410:ef28:2a00:2::/80
+            neighbor: 84:47:09:0b:7d:4a
+          - prefix: 2400:2410:ef28:2a00:3::/80
+            neighbor: 84:47:09:0b:7d:4a
+
+    # 混合用法：内核逐地址 proxy_ndp + 一条 auto 响应器规则
+    eth1:
+      ndp-proxy:
+        addresses: [2001:db8::99]         # 内核 proxy_ndp（本机 MAC，本机转发）
+        rules:
+          - prefix: 2001:db8:100::/64
+            mode: auto                    # 仅当目标的内核路由出口不是本口时才代答
+            # neighbor 省略 → 用本接口 MAC（hairpin：流量过本机再路由）

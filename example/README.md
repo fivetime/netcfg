@@ -13,6 +13,7 @@
 | `full-example.yaml` | netns 综合：default + 多 netns + 跨 ns veth + macvlan |
 | `vpp-example.yaml` | VPP 后端：af-packet/dpdk/loopback、bond、vlan、vxlan、bridge+BVI，以及 NAT44/64/66（netcfg 扩展，见 `docs/vpp-backend-design.md`）|
 | `srv6/` | 内核态 SRv6 (seg6)：transit 引流（routes.encap）+ 全部 endpoint 行为（End/End.X/DT4/DT6/DT46/DX4/DX6/B6…）+ seg6_enabled（netcfg 扩展，见 `docs/srv6-design.md`）|
+| `ndp-proxy.yaml` | NDP 代理（`ndp-proxy` 块）：内核 proxy_ndp(addresses) + 内置纯 Go 响应器(rules，按前缀/外部 MAC，ndppd 等价；见 `docs/ndp-responder-design.md`）|
 
 另见 `evpn/` 子目录：EVPN-VXLAN 数据面（netcfg）+ 控制面（FRR，去敏精简）配对示例。
 

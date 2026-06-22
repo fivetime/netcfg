@@ -134,7 +134,7 @@
 | SLAAC | ✅ | IPv6 无状态自动配置 |
 | 静态路由 | ✅ | to/via/from/metric/table/scope/type/on-link/mtu（见 TODO P0-3） |
 | 策略路由 | ✅ | 基于源/目标/标记的路由（含 VRF 级，见 TODO P0-7） |
-| NDP 代理 | ✅ | 设备级 `nd-proxy: [ipv6…]`（proxy_ndp + NTF_PROXY 邻居，幂等+回收）|
+| NDP 代理 | ✅ | 设备级 `ndp-proxy` 块：`addresses`=内核 proxy_ndp（逐 /128）；`rules`=内置纯 Go 响应器（按前缀代答、可指定外部 MAC，ndppd 等价，跑在 daemon）。见 docs/ndp-responder-design.md |
 | 路由表 | ✅ | 多路由表支持 |
 | 默认路由 | ✅ | 网关配置 |
 | 链路本地 | ✅ | IPv6 link-local（addr_gen_mode）；IPv4 LL 未支持 |

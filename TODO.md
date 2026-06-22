@@ -472,6 +472,6 @@
 - [x] **ND4-3** addresses 子键回归（内核 proxy_ndp 仍按 TestNDProxy 通过）
 
 ### ND5 示例 + 文档 + memory
-- [ ] **ND5-1** example：ndp-proxy 块（addresses + rules）示例
-- [ ] **ND5-2** README/INTRODUCTION 更新（区分内核 proxy_ndp / VPP / 内置响应器）
-- [ ] **ND5-3** memory 更新
+- [x] **ND5-1** example：ndp-proxy 块（addresses + rules）示例
+- [x] **ND5-2** README/INTRODUCTION 更新（区分内核 proxy_ndp / VPP / 内置响应器）
+- [x] **ND5-3** memory 更新
