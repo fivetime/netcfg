@@ -858,7 +858,8 @@ func (c *Config) HasDefaultNamespaceConfig() bool {
 		len(n.Tunnels) > 0 ||
 		len(n.Vrfs) > 0 ||
 		len(n.TunDevices) > 0 ||
-		len(n.TapDevices) > 0
+		len(n.TapDevices) > 0 ||
+		n.SRv6 != nil // 仅 srv6 段（本地 SID/启用）也算 default ns 配置
 }
 
 // ToNamespace 将顶层配置转换为 Namespace 结构

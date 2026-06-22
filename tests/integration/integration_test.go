@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"github.com/vishvananda/netns"
 )
 
@@ -248,8 +249,8 @@ network:
       addresses: [10.95.0.1/24]
 `)
 	link := mustLink(t, "itam0")
-	assertUp(t, link, false)                       // off -> 强制 down
-	assertHasAddr(t, nil, link, "10.95.0.1/24")    // 地址仍下发（配置但不激活）
+	assertUp(t, link, false)                    // off -> 强制 down
+	assertHasAddr(t, nil, link, "10.95.0.1/24") // 地址仍下发（配置但不激活）
 }
 
 func TestNetnsAndCrossVeth(t *testing.T) {
@@ -327,6 +328,165 @@ network:
 	run(t, "apply")
 	link := mustLink(t, "itidem0")
 	assertHasAddr(t, nil, link, "10.97.0.1/24")
+}
+
+// --- SRv6 (seg6) ---
+
+// requireSeg6 探测内核是否真正支持 seg6 lwtunnel（WSL2/部分内核缺
+// CONFIG_IPV6_SEG6_LWTUNNEL：sysctl 在但路由 encap 被静默丢弃）。不支持则跳过。
+func requireSeg6(t *testing.T) {
+	t.Helper()
+	const probe = "itsg6probe"
+	la := netlink.NewLinkAttrs()
+	la.Name = probe
+	d := &netlink.Dummy{LinkAttrs: la}
+	_ = netlink.LinkDel(d)
+	if err := netlink.LinkAdd(d); err != nil {
+		t.Skipf("cannot create probe dummy: %v", err)
+	}
+	defer netlink.LinkDel(d)
+	link, _ := netlink.LinkByName(probe)
+	_ = netlink.LinkSetUp(link)
+	_, dst, _ := net.ParseCIDR("2001:db8:dead::/64")
+	r := &netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Dst:       dst,
+		Encap:     &netlink.SEG6Encap{Mode: nl.SEG6_IPTUN_MODE_ENCAP, Segments: []net.IP{net.ParseIP("2001:db8::1")}},
+	}
+	if err := netlink.RouteReplace(r); err != nil {
+		t.Skipf("kernel lacks seg6 lwtunnel: %v", err)
+	}
+	routes, _ := netlink.RouteList(link, netlink.FAMILY_V6)
+	for _, rt := range routes {
+		if rt.Dst != nil && rt.Dst.String() == dst.String() {
+			if _, ok := rt.Encap.(*netlink.SEG6Encap); ok {
+				return // 真正支持
+			}
+		}
+	}
+	t.Skip("kernel accepts but drops seg6 encap (no CONFIG_IPV6_SEG6_LWTUNNEL)")
+}
+
+// findV6Route 按目标前缀查一条 IPv6 路由。
+func findV6Route(t *testing.T, cidr string) *netlink.Route {
+	t.Helper()
+	_, want, err := net.ParseCIDR(cidr)
+	if err != nil {
+		t.Fatalf("bad cidr %s: %v", cidr, err)
+	}
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V6)
+	if err != nil {
+		t.Fatalf("RouteList: %v", err)
+	}
+	for i := range routes {
+		if routes[i].Dst != nil && routes[i].Dst.String() == want.String() {
+			return &routes[i]
+		}
+	}
+	return nil
+}
+
+func TestSRv6Transit(t *testing.T) {
+	requireSeg6(t)
+	apply(t, `
+network:
+  version: 2
+  dummy-devices:
+    itsr0:
+      addresses: [2001:db8:1::1/64]
+      routes:
+        - to: 2001:db8:ff::/48
+          encap: { type: seg6, mode: encap, segments: [2001:db8:a::1, 2001:db8:b::1] }
+`)
+	rt := findV6Route(t, "2001:db8:ff::/48")
+	if rt == nil {
+		t.Fatal("transit route 2001:db8:ff::/48 not found")
+	}
+	enc, ok := rt.Encap.(*netlink.SEG6Encap)
+	if !ok {
+		t.Fatalf("route encap is %T, want *netlink.SEG6Encap", rt.Encap)
+	}
+	if enc.Mode != nl.SEG6_IPTUN_MODE_ENCAP {
+		t.Fatalf("seg6 mode = %d, want encap(%d)", enc.Mode, nl.SEG6_IPTUN_MODE_ENCAP)
+	}
+	if len(enc.Segments) != 2 {
+		t.Fatalf("seg6 segments = %d, want 2", len(enc.Segments))
+	}
+}
+
+func TestSRv6LocalSIDs(t *testing.T) {
+	requireSeg6(t)
+	apply(t, `
+network:
+  version: 2
+  vrfs:
+    itsrvrf: { table: 110 }
+  srv6:
+    enabled: true
+    local-sids:
+      - { sid: 2001:db8:0:a::1, action: End }
+      - { sid: 2001:db8:0:a::2, action: End.X, nh6: 2001:db8:1::2 }
+      - { sid: 2001:db8:0:a::3, action: End.DT6, table: 110 }
+      - { sid: 2001:db8:0:a::4, action: End.DT4, vrf-table: 110 }
+`)
+	cases := []struct {
+		sid    string
+		action int
+	}{
+		{"2001:db8:0:a::1/128", nl.SEG6_LOCAL_ACTION_END},
+		{"2001:db8:0:a::2/128", nl.SEG6_LOCAL_ACTION_END_X},
+		{"2001:db8:0:a::3/128", nl.SEG6_LOCAL_ACTION_END_DT6},
+		{"2001:db8:0:a::4/128", nl.SEG6_LOCAL_ACTION_END_DT4},
+	}
+	for _, c := range cases {
+		rt := findV6Route(t, c.sid)
+		if rt == nil {
+			t.Errorf("local SID %s not found", c.sid)
+			continue
+		}
+		enc, ok := rt.Encap.(*netlink.SEG6LocalEncap)
+		if !ok {
+			t.Errorf("%s encap is %T, want *netlink.SEG6LocalEncap", c.sid, rt.Encap)
+			continue
+		}
+		if enc.Action != c.action {
+			t.Errorf("%s action = %d, want %d", c.sid, enc.Action, c.action)
+		}
+		if c.action == nl.SEG6_LOCAL_ACTION_END_DT4 && enc.VrfTable != 110 {
+			t.Errorf("%s vrftable = %d, want 110", c.sid, enc.VrfTable)
+		}
+	}
+}
+
+func TestSRv6Reap(t *testing.T) {
+	requireSeg6(t)
+	apply(t, `
+network:
+  version: 2
+  srv6:
+    enabled: true
+    local-sids:
+      - { sid: 2001:db8:0:b::1, action: End }
+      - { sid: 2001:db8:0:b::2, action: End }
+`)
+	if findV6Route(t, "2001:db8:0:b::2/128") == nil {
+		t.Fatal("SID ::2 should exist after first apply")
+	}
+	// 第二次只保留 ::1，::2 应被回收
+	apply(t, `
+network:
+  version: 2
+  srv6:
+    enabled: true
+    local-sids:
+      - { sid: 2001:db8:0:b::1, action: End }
+`)
+	if findV6Route(t, "2001:db8:0:b::1/128") == nil {
+		t.Fatal("SID ::1 should still exist")
+	}
+	if rt := findV6Route(t, "2001:db8:0:b::2/128"); rt != nil {
+		t.Fatalf("SID ::2 should be reaped, still present: %+v", rt)
+	}
 }
 
 func TestDestroyNetns(t *testing.T) {
