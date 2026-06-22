@@ -28,10 +28,6 @@ import (
 
 const (
 	NetnsRunDir = "/var/run/netns"
-
-	// lftForever 是内核地址生命周期的「永久」值 (INFINITY_LIFE_TIME, 0xFFFFFFFF)。
-	// 用于 preferred_lft=0 但 valid_lft=forever 的弃用地址场景。
-	lftForever = 0xFFFFFFFF
 )
 
 // NetlinkManager netlink 操作管理器
@@ -1400,8 +1396,12 @@ func (m *NetlinkManager) AddAddressOpts(linkName, cidr, label, lifetime string) 
 	case "", "forever":
 		// 永久：保持默认（ValidLft/PreferedLft = 0，底层库不发 CACHEINFO）
 	case "0":
-		// 立即弃用但仍永久有效：valid_lft=forever, preferred_lft=0
-		addr.ValidLft = lftForever
+		// 立即弃用但仍永久有效：valid_lft=forever (INFINITY_LIFE_TIME, 0xFFFFFFFF),
+		// preferred_lft=0。经 uint32 变量做运行时转换，避免 32 位平台上
+		// int(常量 0xFFFFFFFF) 编译溢出（32 位得 -1、64 位得 4294967295；netlink 层
+		// uint32(ValidLft) 两者都还原为 0xFFFFFFFF）。
+		infLft := ^uint32(0)
+		addr.ValidLft = int(infLft)
 		addr.PreferedLft = 0
 	default:
 		return fmt.Errorf("invalid address lifetime %q (expected 0 or forever)", lifetime)
