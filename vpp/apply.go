@@ -26,7 +26,6 @@ import (
 	interfaces "go.fd.io/govpp/binapi/interface"
 	"go.fd.io/govpp/binapi/interface_types"
 	"go.fd.io/govpp/binapi/ip"
-	ip6_nd "go.fd.io/govpp/binapi/ip6_nd"
 	"go.fd.io/govpp/binapi/ip_types"
 	"go.fd.io/govpp/binapi/l2"
 	"go.fd.io/govpp/binapi/vxlan"
@@ -41,7 +40,6 @@ type Applier struct {
 	bondc bond.RPCService
 	vxc   vxlan.RPCService
 	devc  dev.RPCService      // VPP 设备框架（26.02 用于 iavf 等原生驱动）
-	ndc   ip6_nd.RPCService   // IPv6 ND（NDP 代理）
 	conn  govppapi.Connection // 供 NAT 等子模块按需创建 service client
 
 	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
@@ -60,7 +58,6 @@ func NewApplier(c *Client) *Applier {
 		bondc: bond.NewServiceClient(conn),
 		vxc:   vxlan.NewServiceClient(conn),
 		devc:  dev.NewServiceClient(conn),
-		ndc:   ip6_nd.NewServiceClient(conn),
 		idx:   map[string]interface_types.InterfaceIndex{},
 	}
 }

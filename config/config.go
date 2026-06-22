@@ -342,9 +342,6 @@ type VPPDevice struct {
 	Role      string `yaml:"role,omitempty"`      // memif master/slave
 	RingSize  int    `yaml:"ring-size,omitempty"` // memif 环大小
 	BdID      int    `yaml:"bd-id,omitempty"`     // bridge domain 数字 id（bridge 用，缺省自动分配）
-
-	// NDProxy：在该接口上为这些 IPv6 地址做 NDP 代理（VPP 替它们应答 NS）。
-	NDProxy []string `yaml:"nd-proxy,omitempty"`
 }
 
 // Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。

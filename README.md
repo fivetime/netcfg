@@ -10,7 +10,7 @@ A network configuration tool compatible with netplan syntax, with native support
 - **Full Device Support**: ethernet, wifi, dummy, veth, macvlan, macvtap, ipvlan, bridge, bond, vlan, vxlan, vrf, tunnel (incl. wireguard via `tunnels:mode`), tun, tap
 - **VXLAN/EVPN Ready**: Full VXLAN support including FDB management, ARP suppress, external mode
 - **SRv6 (seg6)**: kernel Segment Routing over IPv6 — transit steering (`routes[].encap`) and all endpoint behaviors (End/End.X/End.T/End.DX2/DX4/DX6/DT4/DT6/DT46/B6/B6.Encaps). See `docs/srv6-design.md`
-- **NDP proxy** (per-device `ndp-proxy` block): kernel `addresses` (proxy_ndp + NTF_PROXY neighbor, per-/128) **and** a built-in pure-Go responder `rules` (answer NS for whole prefixes with an optional foreign MAC — ndppd-equivalent, runs in the daemon, no external program); also VPP `ip6nd_proxy`. See `docs/ndp-responder-design.md`
+- **NDP proxy** (per-device `ndp-proxy` block): kernel `addresses` (proxy_ndp + NTF_PROXY neighbor, per-/128) **and** a built-in pure-Go responder `rules` (answer NS for whole prefixes with an optional foreign MAC — ndppd-equivalent, runs in the daemon, no external program). See `docs/ndp-responder-design.md`
 - **WiFi & 802.1x**: Generates wpa_supplicant config and spawns it directly (init-agnostic) — PSK/SAE(WPA3)/EAP enterprise
 - **NIC tuning**: offload, SR-IOV (VF count / eswitch mode / `rebind`), Wake-on-LAN, InfiniBand mode — via netlink/ethtool-ioctl (pure Go, no `ethtool`/`devlink` CLI)
 - **Pure-Go DHCP**: Built-in DHCPv4/v6 client (falls back to external clients), with DHCP overrides

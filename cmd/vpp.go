@@ -212,23 +212,13 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 		a.ApplyNat(ctx, global.NAT)
 	}
 
-	// NDP 代理（接口就绪后，逐设备的 vpp.nd-proxy 地址）
-	ndp := ndProxyFromSet(v)
-	for _, name := range sortedKeys(ndp) {
-		if err := a.ApplyNDProxy(ctx, name, ndp[name]); err != nil {
-			slog.Error("vpp apply nd-proxy failed", "device", name, "error", err)
-		}
-	}
-
-	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备 + NAT 规则 + NDP 代理（孤儿）。
+	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备 + NAT 规则（孤儿）。
 	desired := buildDesiredVPPState(v)
 	if global != nil && global.NAT != nil {
 		desired.Nat = natItemsFromConfig(global.NAT)
 	}
-	desired.NDProxy = ndProxyItems(ndp)
 	reapVPPOrphans(ctx, a, prev, desired)
 	reapNatOrphans(ctx, a, prev, desired)
-	reapVPPNDProxyOrphans(ctx, a, prev, desired)
 	if err := desired.Save(); err != nil {
 		slog.Warn("failed to save VPP state", "error", err)
 	}
@@ -286,64 +276,6 @@ func reapNatOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.Stat
 			slog.Warn("vpp reap nat rule failed", "kind", it.Kind, "error", err)
 		} else {
 			slog.Info("vpp removed orphan nat rule", "kind", it.Kind, "local", it.Local, "iface", it.Iface, "start", it.Start)
-		}
-	}
-}
-
-// ndProxyFromSet 收集各 VPP 设备 vpp.nd-proxy 的地址（设备名 → IPv6 列表）。
-func ndProxyFromSet(v *vppSet) map[string][]string {
-	out := map[string][]string{}
-	add := func(name string, d *config.VPPDevice) {
-		if d != nil && len(d.NDProxy) > 0 {
-			out[name] = d.NDProxy
-		}
-	}
-	for n, e := range v.ethernets {
-		add(n, e.VPP)
-	}
-	for n, b := range v.bonds {
-		add(n, b.VPP)
-	}
-	for n, x := range v.vlans {
-		add(n, x.VPP)
-	}
-	for n, x := range v.vxlans {
-		add(n, x.VPP)
-	}
-	for n, t := range v.tunnels {
-		add(n, t.VPP)
-	}
-	for n, b := range v.bridges {
-		add(n, b.VPP)
-	}
-	return out
-}
-
-// ndProxyItems 把 nd-proxy 映射展开为可回收的 NDProxyItem 列表。
-func ndProxyItems(ndp map[string][]string) []vpp.NDProxyItem {
-	var items []vpp.NDProxyItem
-	for iface, addrs := range ndp {
-		for _, ip := range addrs {
-			items = append(items, vpp.NDProxyItem{Iface: iface, IP: ip})
-		}
-	}
-	return items
-}
-
-// reapNDProxyOrphans 删除 prev 中有、desired 中无的 NDP 代理条目。
-func reapVPPNDProxyOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.State) {
-	want := map[string]bool{}
-	for _, it := range desired.NDProxy {
-		want[it.Key()] = true
-	}
-	for _, it := range prev.NDProxy {
-		if want[it.Key()] {
-			continue
-		}
-		if err := a.DeleteNDProxy(ctx, it); err != nil {
-			slog.Warn("vpp reap nd-proxy failed", "iface", it.Iface, "ip", it.IP, "error", err)
-		} else {
-			slog.Info("vpp removed orphan nd-proxy", "iface", it.Iface, "ip", it.IP)
 		}
 	}
 }

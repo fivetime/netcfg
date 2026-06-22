@@ -60,17 +60,7 @@ func (i NatItem) Key() string {
 type State struct {
 	Devices map[string]DevInfo `json:"devices"`
 	Nat     []NatItem          `json:"nat,omitempty"`
-	NDProxy []NDProxyItem      `json:"nd_proxy,omitempty"`
 }
-
-// NDProxyItem 记录一条 NDP 代理条目（接口 + 被代理的 IPv6 地址），用于增量回收。
-type NDProxyItem struct {
-	Iface string `json:"iface"`
-	IP    string `json:"ip"`
-}
-
-// Key 返回 NDProxyItem 的规范化标识（用于 diff 去重）。
-func (i NDProxyItem) Key() string { return i.Iface + "|" + i.IP }
 
 // NewState 返回空状态。
 func NewState() *State { return &State{Devices: map[string]DevInfo{}} }
