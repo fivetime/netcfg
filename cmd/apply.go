@@ -65,8 +65,9 @@ func Apply(cfg *config.Config) error {
 		slog.Warn("failed to apply some removals", "error", err)
 	}
 
-	// 1.5 回收已不在配置中的 SRv6 本地 SID（状态对比，不走设备 diff）
+	// 1.5 回收已不在配置中的 SRv6 本地 SID / NDP 代理（状态对比，不走设备 diff）
 	reapSRv6Orphans(oldState, newState)
+	reapNDProxyOrphans(oldState, newState)
 
 	// 2. 创建所有 netns
 	for nsName := range cfg.Network.Netns {
@@ -158,6 +159,60 @@ func reapSRv6Orphans(oldState, newState *state.State) {
 	}
 }
 
+// reapNDProxyOrphans 删除 oldState 有、newState 无的内核 NDP 代理条目（按 netns/设备）。
+func reapNDProxyOrphans(oldState, newState *state.State) {
+	for ns, oldNs := range oldState.Namespaces {
+		if oldNs == nil {
+			continue
+		}
+		// 收集本 ns 新配置仍需保留的 (device,ip)
+		keep := map[string]bool{}
+		if newNs := newState.Namespaces[ns]; newNs != nil {
+			for dev, ds := range newNs.Devices {
+				for _, ip := range ds.NDProxy {
+					keep[dev+"|"+ip] = true
+				}
+			}
+		}
+		// 找出需删除的
+		removals := map[string][]string{} // device -> []ip
+		for dev, ds := range oldNs.Devices {
+			for _, ip := range ds.NDProxy {
+				if !keep[dev+"|"+ip] {
+					removals[dev] = append(removals[dev], ip)
+				}
+			}
+		}
+		if len(removals) == 0 {
+			continue
+		}
+
+		var mgr *nl.NetlinkManager
+		var err error
+		if ns == "" {
+			mgr, err = nl.New()
+		} else {
+			if !nl.NetnsExists(ns) {
+				continue
+			}
+			mgr, err = nl.NewWithNetns(ns)
+		}
+		if err != nil {
+			slog.Warn("failed to get manager for nd-proxy removal", "ns", ns, "error", err)
+			continue
+		}
+		for dev, ips := range removals {
+			for _, ip := range ips {
+				slog.Info("removing nd-proxy", "device", dev, "ip", ip, "netns", ns)
+				if err := mgr.DeleteProxyNDP(dev, ip); err != nil {
+					slog.Warn("failed to remove nd-proxy", "device", dev, "ip", ip, "error", err)
+				}
+			}
+		}
+		mgr.Close()
+	}
+}
+
 // buildStateFromConfig 从配置构建状态
 func buildStateFromConfig(cfg *config.Config) *state.State {
 	s := state.NewState()
@@ -188,6 +243,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "ethernet",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
+			NDProxy:   cfg.NDProxy,
 			CreatedBy: "system", // 物理设备
 		}
 	}
@@ -208,6 +264,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "bridge",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
+			NDProxy:   cfg.NDProxy,
 			CreatedBy: "netcfg",
 		}
 	}
@@ -218,6 +275,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "bond",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
+			NDProxy:   cfg.NDProxy,
 			CreatedBy: "netcfg",
 		}
 	}
@@ -228,6 +286,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "vlan",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
+			NDProxy:   cfg.NDProxy,
 			CreatedBy: "netcfg",
 		}
 	}
@@ -740,6 +799,9 @@ func setupEthernets(mgr *nl.NetlinkManager, nsName string, devices map[string]*c
 		// 其它物理网卡杂项：wakeonlan / infiniband-mode / emit-lldp
 		applyEthernetExtras(mgr, name, cfg)
 
+		// 内核 NDP 代理（proxy_ndp + NTF_PROXY 邻居）
+		applyNDProxy(mgr, name, cfg.NDProxy)
+
 		// 802.1X / EAP：生成 wpa_supplicant 配置并直接拉起（init-agnostic）
 		if cfg.Auth != nil {
 			setup8021x(name, cfg.Auth)
@@ -858,6 +920,7 @@ func setupVlans(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 			continue
 		}
 		applyNameservers(mgr, name, cfg.Nameservers)
+		applyNDProxy(mgr, name, cfg.NDProxy)
 	}
 
 	return nil
@@ -1075,6 +1138,7 @@ func setupBonds(mgr *nl.NetlinkManager, nsName string, devices map[string]*confi
 			return fmt.Errorf("failed to setup bond %s: %w", name, err)
 		}
 		applyNameservers(mgr, name, cfg.Nameservers)
+		applyNDProxy(mgr, name, cfg.NDProxy)
 	}
 
 	return nil
@@ -1139,6 +1203,7 @@ func setupBridges(mgr *nl.NetlinkManager, nsName string, devices map[string]*con
 			return fmt.Errorf("failed to setup bridge %s: %w", name, err)
 		}
 		applyNameservers(mgr, name, cfg.Nameservers)
+		applyNDProxy(mgr, name, cfg.NDProxy)
 
 		// EVPN: 添加静态 FDB 条目
 		for _, fdb := range cfg.FDB {
@@ -1822,6 +1887,23 @@ func ensureSRv6Dummy(mgr *nl.NetlinkManager, name string) error {
 		}
 	}
 	return mgr.SetLinkUp(name)
+}
+
+// applyNDProxy 内核 NDP 代理：开 proxy_ndp + 为每个 IPv6 地址加 NTF_PROXY 邻居（best-effort）。
+func applyNDProxy(mgr *nl.NetlinkManager, name string, addrs []string) {
+	if len(addrs) == 0 {
+		return
+	}
+	if err := mgr.EnableProxyNDP(name); err != nil {
+		slog.Warn("failed to enable proxy_ndp", "device", name, "error", err)
+	}
+	for _, ip := range addrs {
+		if err := mgr.AddProxyNDP(name, ip); err != nil {
+			slog.Warn("failed to add nd-proxy", "device", name, "ip", ip, "error", err)
+		} else {
+			slog.Info("added nd-proxy", "device", name, "ip", ip)
+		}
+	}
 }
 
 // runPostScript 运行后置脚本

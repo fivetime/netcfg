@@ -4,7 +4,8 @@ network:
 
   ethernets:
     eth0:
-      addresses: [10.0.0.10/24]
+      addresses: [10.0.0.10/24, 2001:db8::10/64]
+      nd-proxy: [2001:db8::99]   # 内核 NDP 代理：本口替 2001:db8::99 应答 NS
 
   # dummy 虚拟设备
   dummy-devices:

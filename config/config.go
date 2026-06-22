@@ -215,6 +215,9 @@ type Ethernet struct {
 	Hairpin         *bool `yaml:"hairpin,omitempty"`
 	PortMacLearning *bool `yaml:"port-mac-learning,omitempty"`
 
+	// NDProxy：内核 NDP 代理——本接口为这些 IPv6 地址应答 NS（proxy_ndp + ip -6 neigh proxy）
+	NDProxy []string `yaml:"nd-proxy,omitempty"`
+
 	// VPP 后端（做法 A：带 vpp 块或 renderer:vpp → 走 VPP）。见 docs/vpp-backend-design.md
 	Renderer string     `yaml:"renderer,omitempty"` // 设备级覆盖（vpp / networkd…），默认继承全局
 	VPP      *VPPDevice `yaml:"vpp,omitempty"`      // VPP 设备落地细节；存在即归 VPP
@@ -324,6 +327,9 @@ type VPPDevice struct {
 	Role      string `yaml:"role,omitempty"`      // memif master/slave
 	RingSize  int    `yaml:"ring-size,omitempty"` // memif 环大小
 	BdID      int    `yaml:"bd-id,omitempty"`     // bridge domain 数字 id（bridge 用，缺省自动分配）
+
+	// NDProxy：在该接口上为这些 IPv6 地址做 NDP 代理（VPP 替它们应答 NS）。
+	NDProxy []string `yaml:"nd-proxy,omitempty"`
 }
 
 // Auth netplan 认证设置（802.1X 有线 / WiFi EAP）。
@@ -508,6 +514,7 @@ type Bridge struct {
 	VlanFiltering *bool             `yaml:"vlan-filtering,omitempty"` // EVPN
 	FDB           []*FDBEntry       `yaml:"fdb,omitempty"`            // 静态 FDB
 	Neighbors     []*NeighEntry     `yaml:"neighbors,omitempty"`      // 静态 ARP/ND
+	NDProxy       []string          `yaml:"nd-proxy,omitempty"`       // 内核 NDP 代理
 	Renderer      string            `yaml:"renderer,omitempty"`       // VPP 后端：设备级覆盖
 	VPP           *VPPDevice        `yaml:"vpp,omitempty"`            // VPP 后端：bridge domain（bd-id）
 }
@@ -535,6 +542,7 @@ type Bond struct {
 	Nameservers *Nameservers    `yaml:"nameservers,omitempty"`
 	DHCP4       bool            `yaml:"dhcp4,omitempty"`
 	DHCP6       bool            `yaml:"dhcp6,omitempty"`
+	NDProxy     []string        `yaml:"nd-proxy,omitempty"` // 内核 NDP 代理
 	Renderer    string          `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
 	VPP         *VPPDevice      `yaml:"vpp,omitempty"`      // VPP 后端：归属信号
 }
@@ -574,6 +582,7 @@ type Vlan struct {
 	Nameservers *Nameservers `yaml:"nameservers,omitempty"`
 	DHCP4       bool         `yaml:"dhcp4,omitempty"`
 	DHCP6       bool         `yaml:"dhcp6,omitempty"`
+	NDProxy     []string     `yaml:"nd-proxy,omitempty"` // 内核 NDP 代理
 	Renderer    string       `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
 	VPP         *VPPDevice   `yaml:"vpp,omitempty"`      // VPP 后端：sub-interface 归属信号
 }

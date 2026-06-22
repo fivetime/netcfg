@@ -367,6 +367,56 @@ network:
 	}
 }
 
+// TestNDProxy 验证内核 NDP 代理（proxy_ndp + NTF_PROXY 邻居）下发与回收。
+func TestNDProxy(t *testing.T) {
+	apply(t, `
+network:
+  version: 2
+  bridges:
+    itndp0:
+      addresses: [2001:db8:7::1/64]
+      nd-proxy: [2001:db8:7::99, 2001:db8:7::100]
+`)
+	link := mustLink(t, "itndp0")
+	proxied := func() map[string]bool {
+		neighs, err := netlink.NeighProxyList(link.Attrs().Index, netlink.FAMILY_V6)
+		if err != nil {
+			t.Fatalf("NeighProxyList: %v", err)
+		}
+		m := map[string]bool{}
+		for _, n := range neighs {
+			if n.IP != nil {
+				m[n.IP.String()] = true
+			}
+		}
+		return m
+	}
+	got := proxied()
+	if !got["2001:db8:7::99"] || !got["2001:db8:7::100"] {
+		t.Fatalf("nd-proxy entries missing, have %v", got)
+	}
+	if b, _ := os.ReadFile("/proc/sys/net/ipv6/conf/itndp0/proxy_ndp"); strings.TrimSpace(string(b)) != "1" {
+		t.Errorf("proxy_ndp not enabled on itndp0")
+	}
+
+	// reap：移除 ::100
+	apply(t, `
+network:
+  version: 2
+  bridges:
+    itndp0:
+      addresses: [2001:db8:7::1/64]
+      nd-proxy: [2001:db8:7::99]
+`)
+	got = proxied()
+	if !got["2001:db8:7::99"] {
+		t.Errorf("nd-proxy ::99 should remain")
+	}
+	if got["2001:db8:7::100"] {
+		t.Errorf("nd-proxy ::100 should be reaped")
+	}
+}
+
 // --- SRv6 (seg6) ---
 
 // requireSeg6 探测内核是否真正支持 seg6 lwtunnel（WSL2/部分内核缺

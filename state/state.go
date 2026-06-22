@@ -41,6 +41,7 @@ type DeviceState struct {
 	Addresses []string `json:"addresses,omitempty"`
 	Routes    []string `json:"routes,omitempty"`     // "to via dev" 格式
 	Master    string   `json:"master,omitempty"`     // bridge/bond/vrf
+	NDProxy   []string `json:"nd_proxy,omitempty"`   // 内核 NDP 代理地址（增量回收用）
 	CreatedBy string   `json:"created_by,omitempty"` // "netcfg" or "system"
 }
 

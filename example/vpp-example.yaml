@@ -45,7 +45,8 @@ network:
       addresses: [10.0.0.1/24, "2001:db8::1/64"]
       routes:
         - { to: default, via: 10.0.0.254 }
-      vpp: { mode: af-packet, host-if: eth0 }
+      # nd-proxy：VPP 替这些 IPv6 地址在本口应答 NS（ip6nd_proxy）
+      vpp: { mode: af-packet, host-if: eth0, nd-proxy: ["2001:db8::99"] }
 
     # dpdk 独占：VPP 接管该 VF（PCI），写入 startup.conf，需重启 VPP 生效
     vf0: { addresses: [203.0.113.1/24], vpp: { mode: dpdk, pci: "0000:03:02.0" } }

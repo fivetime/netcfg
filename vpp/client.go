@@ -20,6 +20,7 @@ import (
 	"go.fd.io/govpp/binapi/bond"
 	interfaces "go.fd.io/govpp/binapi/interface"
 	"go.fd.io/govpp/binapi/ip"
+	ip6_nd "go.fd.io/govpp/binapi/ip6_nd"
 	"go.fd.io/govpp/binapi/l2"
 	"go.fd.io/govpp/binapi/tapv2"
 	"go.fd.io/govpp/binapi/vxlan"
@@ -69,6 +70,7 @@ func (c *Client) checkCompatibility() error {
 	msgs = append(msgs, af_packet.AllMessages()...)
 	msgs = append(msgs, tapv2.AllMessages()...)
 	msgs = append(msgs, bond.AllMessages()...)
+	msgs = append(msgs, ip6_nd.AllMessages()...)
 	if err := c.ch.CheckCompatiblity(msgs...); err != nil {
 		return fmt.Errorf("VPP API bindings incompatible with running VPP (regenerate binapi for the target VPP version): %w", err)
 	}
