@@ -1,0 +1,15 @@
+# golangci-lint v2 配置。
+# 标准 linter 集（errcheck/govet/ineffassign/staticcheck/unused）+ 复用内置排除预设：
+#   std-error-handling   —— 不报常见的 Close/Flush/fmt.Fprint* 等未检查错误（v1 默认行为）
+#   common-false-positives —— 抑制常见误报
+# 真正有意义的错误（如被吞掉的 DHCP Request 错误）已在代码里修掉，不靠排除掩盖。
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+      - common-false-positives

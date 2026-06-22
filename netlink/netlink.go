@@ -69,7 +69,7 @@ func NewWithNetns(nsName string) (*NetlinkManager, error) {
 // Close 关闭管理器
 func (m *NetlinkManager) Close() {
 	if m.handle != nil {
-		m.handle.Delete()
+		m.handle.Close()
 	}
 	if m.nsHandle != 0 {
 		m.nsHandle.Close()

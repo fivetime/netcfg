@@ -179,8 +179,8 @@ func (c *DHCPv4Client) Release(ctx context.Context, lease *DHCPv4Lease) error {
 		return err
 	}
 
-	// 发送 RELEASE（单播到服务器，不期望响应）
-	client.SendAndRead(ctx,
+	// 发送 RELEASE（单播到服务器，不期望响应；best-effort，忽略返回）
+	_, _ = client.SendAndRead(ctx,
 		&net.UDPAddr{IP: lease.ServerIP, Port: 67},
 		release, nil)
 	return nil
@@ -206,7 +206,8 @@ func (c *DHCPv4Client) Decline(ctx context.Context, ip net.IP, serverIP net.IP) 
 		return err
 	}
 
-	client.SendAndRead(ctx, nclient4.DefaultServers, decline, nil)
+	// best-effort，忽略返回
+	_, _ = client.SendAndRead(ctx, nclient4.DefaultServers, decline, nil)
 	return nil
 }
 

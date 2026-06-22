@@ -91,7 +91,6 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
-          args: --timeout=5m
+          version: v2.12.2   # v2 与 go 1.25 兼容；配置见 .golangci.yml

@@ -122,8 +122,11 @@ func (c *DHCPv6Client) Request(ctx context.Context) (*DHCPv6Lease, error) {
 		mods = append(mods, dhcpv6.WithRapidCommit)
 		reply, err = client.RapidSolicit(ctx, mods...)
 	} else {
-		// 标准 4-way: Solicit -> Advertise -> Request -> Reply
-		adv, err := client.Solicit(ctx, mods...)
+		// 标准 4-way: Solicit -> Advertise -> Request -> Reply。
+		// 注意：adv 用 var 声明，避免 := 在 else 块内遮蔽外层 err，
+		// 导致下面 client.Request 的错误被吞（外层 if err 检查不到）。
+		var adv *dhcpv6.Message
+		adv, err = client.Solicit(ctx, mods...)
 		if err != nil {
 			return nil, fmt.Errorf("solicit failed: %w", err)
 		}
@@ -284,8 +287,8 @@ func (c *DHCPv6Client) Release(ctx context.Context, lease *DHCPv6Lease) error {
 		release.AddOption(iana)
 	}
 
-	// 发送（不期望响应）
-	client.SendAndRead(ctx, nclient6.AllDHCPRelayAgentsAndServers, release, nil)
+	// 发送（不期望响应；best-effort，忽略返回）
+	_, _ = client.SendAndRead(ctx, nclient6.AllDHCPRelayAgentsAndServers, release, nil)
 	return nil
 }
 
@@ -332,7 +335,8 @@ func (c *DHCPv6Client) Decline(ctx context.Context, lease *DHCPv6Lease, conflict
 		decline.AddOption(iana)
 	}
 
-	client.SendAndRead(ctx, nclient6.AllDHCPRelayAgentsAndServers, decline, nil)
+	// best-effort，忽略返回
+	_, _ = client.SendAndRead(ctx, nclient6.AllDHCPRelayAgentsAndServers, decline, nil)
 	return nil
 }
 

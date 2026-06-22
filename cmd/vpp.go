@@ -12,7 +12,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/netcfg/netcfg/config"
@@ -55,27 +54,6 @@ type vppSet struct {
 
 func (v *vppSet) empty() bool {
 	return len(v.ethernets)+len(v.bridges)+len(v.bonds)+len(v.vlans)+len(v.vxlans)+len(v.tunnels) == 0
-}
-
-func (v *vppSet) names() []string {
-	var ns []string
-	for n := range v.ethernets {
-		ns = append(ns, n)
-	}
-	for n := range v.bridges {
-		ns = append(ns, n)
-	}
-	for n := range v.bonds {
-		ns = append(ns, n)
-	}
-	for n := range v.vlans {
-		ns = append(ns, n)
-	}
-	for n := range v.tunnels {
-		ns = append(ns, n)
-	}
-	sort.Strings(ns)
-	return ns
 }
 
 // splitVPPDevices 把命名空间里归 VPP 管的设备拆出，返回（仅内核设备的命名空间副本，
