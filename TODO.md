@@ -455,11 +455,11 @@
 - [x] **ND1-4** 校验：prefix 合法 IPv6 CIDR、neighbor 合法 MAC（config/ndp.go）
 
 ### ND2 响应器核心（纯 Go）
-- [ ] **ND2-1** netlink 层：`SetAllmulti(iface, bool)`（vishvananda LinkSetAllmulticastOn/Off）
-- [ ] **ND2-2** ndp 响应器包：AF_PACKET socket + BPF 过滤 ICMPv6 NS(135)；解析 NS 取 target
-- [ ] **ND2-3** 前缀匹配 → 构造 NA(136)：TLLA=neighbor(缺省本口 MAC)、flags S+O(+R)，经 AF_PACKET 发出
-- [ ] **ND2-4** DAD（src ::）处理（先简单：可代答到 all-nodes 或跳过，文档注明）
-- [ ] **ND2-5** 每接口一 goroutine + 优雅退出（context）
+- [x] **ND2-1** netlink 层：`SetAllmulti(iface, bool)`（vishvananda LinkSetAllmulticastOn/Off）
+- [x] **ND2-2** ndp 响应器包：AF_PACKET socket + BPF 过滤 ICMPv6 NS(135)；解析 NS 取 target
+- [x] **ND2-3** 前缀匹配 → 构造 NA(136)：TLLA=neighbor(缺省本口 MAC)、flags S+O(+R)，经 AF_PACKET 发出
+- [x] **ND2-4** DAD（src ::）处理（先简单：可代答到 all-nodes 或跳过，文档注明）
+- [x] **ND2-5** 每接口一 goroutine + 优雅退出（context）
 
 ### ND3 接线
 - [ ] **ND3-1** apply：校验 + 下发 addresses 内核 proxy_ndp + 为有 rules 的接口设 allmulti（不常驻）
@@ -467,7 +467,7 @@
 - [ ] **ND3-3** 停用/移除接口时关 allmulti + 停 goroutine
 
 ### ND4 验证（本地，不依赖 machine1）
-- [ ] **ND4-1** 单测：NS 解析 + NA 构造（TLLA=外部 MAC、flags）字节级断言
+- [x] **ND4-1** 单测：NS 解析 + NA 构造（TLLA=外部 MAC、flags）字节级断言
 - [ ] **ND4-2** 集成测试（容器，veth 对）：一端发 NS（造目标在前缀内），另一端 netcfg 响应器回 NA，抓包断言 TLLA=配置 MAC
 - [ ] **ND4-3** addresses 子键回归（内核 proxy_ndp 仍按 TestNDProxy 通过）
 

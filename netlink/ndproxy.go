@@ -20,6 +20,19 @@ func (m *NetlinkManager) EnableProxyNDP(iface string) error {
 	return writeSysctl(iface, "proxy_ndp", "1")
 }
 
+// SetAllmulti 开/关接口的 all-multicast（收全 IPv6 组播，供 NDP 响应器收任意
+// solicited-node NS）。
+func (m *NetlinkManager) SetAllmulti(iface string, on bool) error {
+	link, err := m.handle.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("allmulti %s: %w", iface, err)
+	}
+	if on {
+		return m.handle.LinkSetAllmulticastOn(link)
+	}
+	return m.handle.LinkSetAllmulticastOff(link)
+}
+
 // proxyNDPNeigh 构造一条 IPv6 NDP 代理邻居条目。
 func (m *NetlinkManager) proxyNDPNeigh(iface, ipStr string) (*netlink.Neigh, error) {
 	link, err := m.handle.LinkByName(iface)

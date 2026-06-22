@@ -8,6 +8,8 @@ replace go.fd.io/govpp => C:/MyProjects/OpenSource/Kubernetes/govpp
 
 require (
 	github.com/insomniacslk/dhcp v0.0.0-20260603135910-a415979eb11e
+	github.com/mdlayher/ndp v1.1.0
+	github.com/mdlayher/packet v1.1.2
 	github.com/safchain/ethtool v0.6.2
 	github.com/spf13/cobra v1.10.2
 	github.com/vishvananda/netlink v1.3.2-0.20260610182031-c05a276ed0e0
@@ -24,11 +26,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/lunixbochs/struc v0.0.0-20200521075829-a4cb8d33dbbe // indirect
-	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
-	github.com/mdlayher/ndp v1.1.0 // indirect
 	github.com/mdlayher/netlink v1.7.2 // indirect
-	github.com/mdlayher/packet v1.1.2 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
