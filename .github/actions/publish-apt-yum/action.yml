@@ -1,0 +1,115 @@
+name: "Publish apt/yum repo"
+description: >
+  Sign the packages in `packages-dir` with GPG and publish/accumulate them into
+  signed apt + yum repositories on the gh-pages branch (served by GitHub Pages).
+  No-op-safe: re-running rebuilds the repo from the accumulated pool.
+
+inputs:
+  version:
+    description: "Version being published (display only)"
+    required: true
+  packages-dir:
+    description: "Directory containing the .deb/.rpm files to add"
+    required: false
+    default: out
+  gpg-private-key:
+    description: "ASCII-armored GPG private signing key"
+    required: true
+  gpg-passphrase:
+    description: "Passphrase for the GPG key (empty if none)"
+    required: false
+    default: ""
+  github-token:
+    description: "Token with contents:write to push gh-pages"
+    required: true
+  repository:
+    description: "owner/repo (defaults to the current repository)"
+    required: false
+    default: ${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install repo tooling
+      shell: bash
+      run: |
+        sudo apt-get update
+        # apt-utils→apt-ftparchive, dpkg-dev→dpkg-scanpackages, createrepo-c, rpm→rpmsign
+        sudo apt-get install -y --no-install-recommends \
+          apt-utils dpkg-dev createrepo-c rpm gnupg
+
+    - name: Import GPG signing key
+      id: gpg
+      shell: bash
+      env:
+        GPG_PRIVATE_KEY: ${{ inputs.gpg-private-key }}
+      run: |
+        set -euo pipefail
+        printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+        keyid=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/{print $10; exit}')
+        echo "keyid=$keyid" >> "$GITHUB_OUTPUT"
+        echo "imported key $keyid"
+
+    - name: Arrange incoming packages (per arch)
+      shell: bash
+      run: |
+        set -eux
+        src="${{ inputs.packages-dir }}"
+        mkdir -p incoming/deb
+        cp "$src"/*.deb incoming/deb/ 2>/dev/null || true
+        # rpm bucketed by arch token in filename (x86_64 / aarch64)
+        for f in "$src"/*.rpm; do
+          [ -e "$f" ] || continue
+          case "$f" in
+            *x86_64*) ra=x86_64 ;;
+            *aarch64*) ra=aarch64 ;;
+            *) ra=noarch ;;
+          esac
+          mkdir -p "incoming/rpm/$ra"
+          cp "$f" "incoming/rpm/$ra/"
+        done
+        find incoming -type f | sort
+
+    - name: Fetch existing gh-pages tree (accumulate)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+        if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null 2>&1; then
+          git clone --branch gh-pages --single-branch --depth 1 "$url" site
+        else
+          mkdir site && ( cd site && git init -q -b gh-pages )
+        fi
+
+    - name: Build signed apt + yum repositories
+      shell: bash
+      env:
+        SITE_DIR: site
+        INCOMING_DIR: incoming
+        GPG_KEY_ID: ${{ steps.gpg.outputs.keyid }}
+        GPG_PASSPHRASE: ${{ inputs.gpg-passphrase }}
+        REPO: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        export REPO_URL="https://${REPO%%/*}.github.io/${REPO#*/}"
+        chmod +x packaging/build-repo.sh
+        ./packaging/build-repo.sh
+
+    - name: Commit & push gh-pages
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repository }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+        cd site
+        git add -A
+        git -c user.email="github-actions[bot]@users.noreply.github.com" \
+            -c user.name="github-actions[bot]" \
+            commit -m "publish netcfg ${VERSION} packages" || { echo "nothing to commit"; exit 0; }
+        git push "$url" HEAD:gh-pages

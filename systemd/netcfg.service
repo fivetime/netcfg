@@ -7,7 +7,7 @@ Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/netcfg daemon
+ExecStart=/usr/bin/netcfg daemon
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5

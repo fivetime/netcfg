@@ -1,0 +1,75 @@
+# nfpm 配置 —— 从同一份 spec 生成 .deb 和 .rpm（goreleaser/nfpm）。
+# netcfg 是 CGO_ENABLED=0 的纯静态二进制，无 per-distro ABI 依赖，故一个 .deb 适配
+# 所有 Debian/Ubuntu、一个 .rpm 适配所有 EL —— 只按架构区分。
+#
+# 由 CI 注入环境变量后调用（nfpm 对 version/arch 等标量字段做环境变量展开；但
+# 不展开 contents.src 的 glob，故二进制用固定路径 ./dist/netcfg，每架构各自编译到此处）：
+#   PKG_VERSION  包版本（不带前导 v）
+#   PKG_ARCH     amd64 | arm64（nfpm 会自动映射到 rpm 的 x86_64/aarch64）
+# 例：GOARCH=amd64 CGO_ENABLED=0 go build -o dist/netcfg . && \
+#     PKG_VERSION=0.2.0 PKG_ARCH=amd64 \
+#       nfpm pkg --config packaging/nfpm.yaml --packager deb --target dist/
+name: netcfg
+arch: ${PKG_ARCH}
+platform: linux
+version: ${PKG_VERSION}
+release: "1"
+section: net
+priority: optional
+maintainer: netcfg authors <jp.zdm2008@gmail.com>
+description: |
+  Network configuration tool with netplan compatibility and netns support.
+  netcfg is compatible with netplan YAML syntax and adds native support for
+  network namespaces (netns). It talks to the kernel via netlink directly
+  (no ip/iproute2 command dependency) and ships optional VPP/SRv6/NDP backends.
+homepage: https://github.com/fivetime/netcfg
+license: Apache-2.0
+
+depends:
+  - iproute2
+
+# netplan 兼容：占位、冲突、替换官方 netplan.io（仅 deb 有该包名）
+overrides:
+  deb:
+    conflicts:
+      - netplan.io
+    replaces:
+      - netplan.io
+    provides:
+      - netplan.io
+  rpm:
+    depends:
+      - iproute
+
+contents:
+  # /usr/bin + /usr/lib/systemd/system 是跨发行版都成立的真实目录（usr-merge 下
+  # Arch/Fedora 的 /usr/sbin、/lib 是符号链接，不能被包作为目录占有，否则装包冲突）。
+  - src: ./dist/netcfg
+    dst: /usr/bin/netcfg
+    file_info:
+      mode: 0755
+
+  # netplan 兼容软链（netplan -> netcfg），通过 PATH 解析 `netplan ...`
+  - src: /usr/bin/netcfg
+    dst: /usr/bin/netplan
+    type: symlink
+
+  # systemd 单元（/usr/lib/systemd/system 为各发行版规范单元目录）
+  - src: ./systemd/netcfg.service
+    dst: /usr/lib/systemd/system/netcfg.service
+  - src: ./systemd/netcfg-netns.service
+    dst: /usr/lib/systemd/system/netcfg-netns.service
+  - src: ./systemd/netcfg-wait-online.service
+    dst: /usr/lib/systemd/system/netcfg-wait-online.service
+
+  # 文档与示例
+  - src: ./README.md
+    dst: /usr/share/doc/netcfg/README.md
+  - src: ./LICENSE
+    dst: /usr/share/doc/netcfg/LICENSE
+  - src: ./example/*.yaml
+    dst: /usr/share/doc/netcfg/examples/
+
+scripts:
+  postinstall: ./packaging/scripts/postinstall.sh
+  postremove: ./packaging/scripts/postremove.sh

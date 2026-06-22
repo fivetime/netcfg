@@ -6,7 +6,7 @@ Before=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/netcfg status --wait
+ExecStart=/usr/bin/netcfg status --wait
 RemainAfterExit=yes
 
 [Install]

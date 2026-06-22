@@ -2,8 +2,8 @@
 set -e
 
 # Create symlink for netplan compatibility
-if [ ! -e /usr/sbin/netplan ]; then
-    ln -s /usr/sbin/netcfg /usr/sbin/netplan
+if [ ! -e /usr/bin/netplan ]; then
+    ln -s /usr/bin/netcfg /usr/bin/netplan
 fi
 
 # Create config directory if not exists

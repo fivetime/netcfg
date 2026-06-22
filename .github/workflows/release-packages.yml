@@ -1,0 +1,162 @@
+name: "Release packages (apt/yum)"
+
+# 编排型工作流：把“各系统编译/打包”和“apt/yum 仓库发布”的具体步骤下沉到
+# .github/actions 下的复合 action，这里只负责矩阵聚合与编排。
+#   - .github/actions/build-packages   每架构交叉编译 + nfpm 出 deb/rpm/apk/archlinux
+#   - .github/actions/publish-apt-yum  GPG 签名并把包累加发布到 gh-pages 的 apt/yum 仓库
+#
+# netcfg 是 CGO_ENABLED=0 静态二进制，一个包跨所有发行版，只按架构区分。
+#
+# 触发：推送 v* tag 自动 / 手动（可指定版本）。
+# 前置：仓库 secret GPG_PRIVATE_KEY（ASCII-armored 私钥，可选 GPG_PASSPHRASE）。
+#       未配置 GPG 时仍会把包附到 Release，仅跳过 apt/yum 仓库发布。
+#       并在仓库 Settings → Pages 选择 “Deploy from branch: gh-pages /(root)”。
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.2.0). Empty = newest v* tag.'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-packages
+  cancel-in-progress: false
+
+permissions:
+  contents: write          # 推送 gh-pages 分支 + 创建/更新 GitHub Release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 解析目标版本/tag。
+  # ---------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag:     ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            tag="${{ inputs.version }}"
+            [ -n "$tag" ] && tag="v${tag#v}"
+            [ -z "$tag" ] && tag="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V | tail -1)"
+          fi
+          [ -z "$tag" ] && { echo "::error::No v* tag found."; exit 1; }
+          { echo "tag=$tag"; echo "version=${tag#v}"; } >> "$GITHUB_OUTPUT"
+          echo "tag=$tag version=${tag#v}"
+
+  # ---------------------------------------------------------------------------
+  # 每个架构：调用 build-packages 复合 action 编译 + 打包，上传 artifact。
+  # ---------------------------------------------------------------------------
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Build + package (${{ matrix.arch }})
+        uses: ./.github/actions/build-packages
+        with:
+          version: ${{ needs.prepare.outputs.version }}
+          goarch: ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 5
+
+  # ---------------------------------------------------------------------------
+  # 汇总包 → 附到 Release；有 GPG secret 时调用 publish-apt-yum 发 gh-pages 仓库。
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [prepare, build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION:  ${{ needs.prepare.outputs.version }}
+      TAG:      ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dl
+
+      - name: Collect packages
+        run: |
+          set -eux
+          mkdir -p out
+          find dl -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.apk' -o -name '*.pkg.tar.zst' \) \
+            -exec cp {} out/ \;
+          ls -l out
+
+      - name: Attach packages to GitHub Release
+        run: |
+          set -euo pipefail
+          base="https://${GITHUB_REPOSITORY%%/*}.github.io/${GITHUB_REPOSITORY#*/}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* \
+              --title "netcfg ${VERSION}" \
+              --notes "netcfg ${VERSION} — deb/rpm/apk/archlinux packages (amd64/arm64). apt/yum repo: ${base}/"
+          fi
+
+      - name: Detect signing key
+        id: gpgkey
+        run: |
+          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::GPG_PRIVATE_KEY not set — skipping apt/yum repo (packages still on the Release)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish signed apt/yum repo to gh-pages
+        if: steps.gpgkey.outputs.present == 'true'
+        uses: ./.github/actions/publish-apt-yum
+        with:
+          version: ${{ needs.prepare.outputs.version }}
+          packages-dir: out
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          base="https://${GITHUB_REPOSITORY%%/*}.github.io/${GITHUB_REPOSITORY#*/}"
+          {
+            echo "## netcfg ${VERSION}"
+            echo "- Packages attached to Release \`${TAG}\` (deb/rpm/apk/archlinux, amd64/arm64)"
+            if [ "${{ steps.gpgkey.outputs.present }}" = "true" ]; then
+              echo "- apt: \`deb [signed-by=…] ${base}/apt stable main\` → \`apt-get install netcfg\`"
+              echo "- yum: \`baseurl=${base}/rpm/\$basearch\` → \`dnf install netcfg\`"
+            else
+              echo "- apt/yum repo skipped (no \`GPG_PRIVATE_KEY\` secret)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

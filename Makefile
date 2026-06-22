@@ -13,9 +13,9 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o netcfg .
 
 install: build
-	install -Dm755 netcfg /usr/sbin/netcfg
+	install -Dm755 netcfg /usr/bin/netcfg
 	# Create symlink for netplan compatibility
-	ln -sf /usr/sbin/netcfg /usr/sbin/netplan
+	ln -sf /usr/bin/netcfg /usr/bin/netplan
 	# Create config directory
 	mkdir -p /etc/netcfg
 	mkdir -p /etc/netplan
@@ -29,8 +29,8 @@ install: build
 	@echo "  sudo make enable"
 
 uninstall: disable
-	rm -f /usr/sbin/netcfg
-	rm -f /usr/sbin/netplan
+	rm -f /usr/bin/netcfg
+	rm -f /usr/bin/netplan
 	rm -f $(SYSTEMD_DIR)/netcfg*.service
 	systemctl daemon-reload
 
@@ -79,10 +79,10 @@ dist:
 # Build deb package
 deb: build
 	mkdir -p dist/deb/DEBIAN
-	mkdir -p dist/deb/usr/sbin
+	mkdir -p dist/deb/usr/bin
 	mkdir -p dist/deb/etc/netcfg
 	mkdir -p dist/deb/usr/share/doc/netcfg
-	cp netcfg dist/deb/usr/sbin/
+	cp netcfg dist/deb/usr/bin/
 	cp debian/control dist/deb/DEBIAN/
 	cp debian/postinst dist/deb/DEBIAN/
 	chmod 755 dist/deb/DEBIAN/postinst

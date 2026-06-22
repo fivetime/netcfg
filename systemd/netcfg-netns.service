@@ -7,8 +7,8 @@ Wants=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/netcfg apply --netns-only
-ExecStop=/usr/local/bin/netcfg destroy
+ExecStart=/usr/bin/netcfg apply --netns-only
+ExecStop=/usr/bin/netcfg destroy
 
 [Install]
 WantedBy=multi-user.target

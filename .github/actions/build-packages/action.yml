@@ -1,0 +1,65 @@
+name: "Build netcfg packages"
+description: >
+  Cross-compile the netcfg static binary for one architecture and produce
+  deb / rpm / apk / archlinux packages via nfpm. Assumes the repo is already
+  checked out. Leaves package files in the directory given by `dist` (default ./dist).
+
+inputs:
+  version:
+    description: "Package version (no leading v), e.g. 0.2.0"
+    required: true
+  goarch:
+    description: "Target GOARCH / package arch: amd64 or arm64"
+    required: true
+  dist:
+    description: "Output directory for the binary and packages"
+    required: false
+    default: dist
+  packagers:
+    description: "Space-separated nfpm packagers to build"
+    required: false
+    default: "deb rpm apk archlinux"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - name: Install nfpm
+      shell: bash
+      run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+    - name: Build static binary (${{ inputs.goarch }})
+      shell: bash
+      env:
+        GOOS: linux
+        GOARCH: ${{ inputs.goarch }}
+        CGO_ENABLED: '0'
+      run: |
+        set -euo pipefail
+        COMMIT="$(git rev-parse --short HEAD)"
+        DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        LDFLAGS="-s -w"
+        LDFLAGS="$LDFLAGS -X github.com/netcfg/netcfg/version.Version=${{ inputs.version }}"
+        LDFLAGS="$LDFLAGS -X github.com/netcfg/netcfg/version.GitCommit=$COMMIT"
+        LDFLAGS="$LDFLAGS -X github.com/netcfg/netcfg/version.BuildDate=$DATE"
+        mkdir -p "${{ inputs.dist }}"
+        # nfpm 的 contents.src 不展开环境变量，故二进制用固定名 dist/netcfg。
+        go build -trimpath -ldflags "$LDFLAGS" -o "${{ inputs.dist }}/netcfg" .
+
+    - name: Build packages (${{ inputs.packagers }})
+      shell: bash
+      env:
+        PKG_VERSION: ${{ inputs.version }}
+        PKG_ARCH: ${{ inputs.goarch }}
+      run: |
+        set -euo pipefail
+        # 同一 nfpm spec 出多种包：deb(Debian/Ubuntu…)、rpm(RHEL/Fedora/SUSE…)、
+        # apk(Alpine，musl 上跑纯静态二进制)、archlinux(Arch/Manjaro…)。
+        for p in ${{ inputs.packagers }}; do
+          nfpm pkg --config packaging/nfpm.yaml --packager "$p" --target "${{ inputs.dist }}/"
+        done
+        ls -l "${{ inputs.dist }}/"
