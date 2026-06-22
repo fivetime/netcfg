@@ -375,7 +375,7 @@ network:
   bridges:
     itndp0:
       addresses: [2001:db8:7::1/64]
-      nd-proxy: [2001:db8:7::99, 2001:db8:7::100]
+      ndp-proxy: { addresses: [2001:db8:7::99, 2001:db8:7::100] }
 `)
 	link := mustLink(t, "itndp0")
 	proxied := func() map[string]bool {
@@ -406,7 +406,7 @@ network:
   bridges:
     itndp0:
       addresses: [2001:db8:7::1/64]
-      nd-proxy: [2001:db8:7::99]
+      ndp-proxy: { addresses: [2001:db8:7::99] }
 `)
 	got = proxied()
 	if !got["2001:db8:7::99"] {

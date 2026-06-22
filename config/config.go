@@ -136,6 +136,19 @@ type SRv6LocalSID struct {
 	Dev      string   `yaml:"dev,omitempty"`       // 锚定设备（覆盖 srv6.device）
 }
 
+// NDProxy NDP 代理统一块（netcfg 扩展，见 docs/ndp-responder-design.md）。
+type NDProxy struct {
+	Addresses []string       `yaml:"addresses,omitempty"` // 内核 proxy_ndp 逐 /128（本机 MAC，一次性，apply 即生效）
+	Router    *bool          `yaml:"router,omitempty"`    // 内置响应器回 NA 的 Router(R) 标志
+	Rules     []*NDProxyRule `yaml:"rules,omitempty"`     // 内置响应器（按前缀；需 netcfg daemon 常驻）
+}
+
+// NDProxyRule 一条响应器规则：对落在 Prefix 内的目标地址回 NA。
+type NDProxyRule struct {
+	Prefix   string `yaml:"prefix"`             // 代答的 IPv6 前缀（CIDR）
+	Neighbor string `yaml:"neighbor,omitempty"` // 回 NA 的 TLLA（MAC）；缺省=本接口 MAC（本机进转发路径）
+}
+
 // Namespace 网络命名空间配置
 type Namespace struct {
 	Loopback         *Ethernet                   `yaml:"loopback,omitempty"`
@@ -215,8 +228,9 @@ type Ethernet struct {
 	Hairpin         *bool `yaml:"hairpin,omitempty"`
 	PortMacLearning *bool `yaml:"port-mac-learning,omitempty"`
 
-	// NDProxy：内核 NDP 代理——本接口为这些 IPv6 地址应答 NS（proxy_ndp + ip -6 neigh proxy）
-	NDProxy []string `yaml:"nd-proxy,omitempty"`
+	// NDProxy：NDP 代理（统一块）。addresses=内核 proxy_ndp 逐 /128；rules=内置响应器
+	// （按前缀，可外部 MAC，需 daemon）。见 docs/ndp-responder-design.md。
+	NDProxy *NDProxy `yaml:"ndp-proxy,omitempty"`
 
 	// VPP 后端（做法 A：带 vpp 块或 renderer:vpp → 走 VPP）。见 docs/vpp-backend-design.md
 	Renderer string     `yaml:"renderer,omitempty"` // 设备级覆盖（vpp / networkd…），默认继承全局
@@ -514,7 +528,7 @@ type Bridge struct {
 	VlanFiltering *bool             `yaml:"vlan-filtering,omitempty"` // EVPN
 	FDB           []*FDBEntry       `yaml:"fdb,omitempty"`            // 静态 FDB
 	Neighbors     []*NeighEntry     `yaml:"neighbors,omitempty"`      // 静态 ARP/ND
-	NDProxy       []string          `yaml:"nd-proxy,omitempty"`       // 内核 NDP 代理
+	NDProxy       *NDProxy          `yaml:"ndp-proxy,omitempty"`      // NDP 代理块
 	Renderer      string            `yaml:"renderer,omitempty"`       // VPP 后端：设备级覆盖
 	VPP           *VPPDevice        `yaml:"vpp,omitempty"`            // VPP 后端：bridge domain（bd-id）
 }
@@ -542,9 +556,9 @@ type Bond struct {
 	Nameservers *Nameservers    `yaml:"nameservers,omitempty"`
 	DHCP4       bool            `yaml:"dhcp4,omitempty"`
 	DHCP6       bool            `yaml:"dhcp6,omitempty"`
-	NDProxy     []string        `yaml:"nd-proxy,omitempty"` // 内核 NDP 代理
-	Renderer    string          `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
-	VPP         *VPPDevice      `yaml:"vpp,omitempty"`      // VPP 后端：归属信号
+	NDProxy     *NDProxy        `yaml:"ndp-proxy,omitempty"` // NDP 代理块
+	Renderer    string          `yaml:"renderer,omitempty"`  // VPP 后端：设备级覆盖
+	VPP         *VPPDevice      `yaml:"vpp,omitempty"`       // VPP 后端：归属信号
 }
 
 // BondParameters 绑定参数
@@ -582,9 +596,9 @@ type Vlan struct {
 	Nameservers *Nameservers `yaml:"nameservers,omitempty"`
 	DHCP4       bool         `yaml:"dhcp4,omitempty"`
 	DHCP6       bool         `yaml:"dhcp6,omitempty"`
-	NDProxy     []string     `yaml:"nd-proxy,omitempty"` // 内核 NDP 代理
-	Renderer    string       `yaml:"renderer,omitempty"` // VPP 后端：设备级覆盖
-	VPP         *VPPDevice   `yaml:"vpp,omitempty"`      // VPP 后端：sub-interface 归属信号
+	NDProxy     *NDProxy     `yaml:"ndp-proxy,omitempty"` // NDP 代理块
+	Renderer    string       `yaml:"renderer,omitempty"`  // VPP 后端：设备级覆盖
+	VPP         *VPPDevice   `yaml:"vpp,omitempty"`       // VPP 后端：sub-interface 归属信号
 }
 
 // Vxlan VXLAN 配置
@@ -970,6 +984,11 @@ func LoadConfig(dirPath string) (*Config, error) {
 
 	// SRv6 合法性校验（encap mode/segments、local-sid action 必填矩阵、地址族）
 	if err := ValidateSRv6(merged); err != nil {
+		return nil, err
+	}
+
+	// ndp-proxy 合法性校验（addresses IPv6、rules 前缀 CIDR + MAC）
+	if err := ValidateNDProxy(merged); err != nil {
 		return nil, err
 	}
 

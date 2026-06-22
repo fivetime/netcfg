@@ -445,14 +445,14 @@
 不依赖 ndppd/CGO。响应器跑在 netcfg daemon。
 
 ### ND0 依赖
-- [ ] **ND0-1** go get github.com/mdlayher/ndp + github.com/mdlayher/ethernet（packet 已有），go mod tidy
-- [ ] **ND0-2** 确认 mdlayher/ndp 暴露 ParseMessage / Message.MarshalBinary + NA 的 TargetLinkLayerAddress option（脱离 ndp.Conn 可用）
+- [x] **ND0-1** go get github.com/mdlayher/ndp + github.com/mdlayher/ethernet（packet 已有），go mod tidy
+- [x] **ND0-2** 确认 mdlayher/ndp 暴露 ParseMessage / Message.MarshalBinary + NA 的 TargetLinkLayerAddress option（脱离 ndp.Conn 可用）
 
 ### ND1 配置 schema（统一到 ndp-proxy 块）
-- [ ] **ND1-1** 新增 `NDProxy` 结构：`{addresses []string, router *bool, rules []NDProxyRule}`；`NDProxyRule{Prefix, Neighbor}`
-- [ ] **ND1-2** 把 Ethernet/Vlan/Bridge/Bond 的 `NDProxy []string`（旧扁平）迁移为 `NDProxy *NDProxy`（`ndp-proxy` 块）；`addresses` 子键 = 原内核 proxy_ndp
-- [ ] **ND1-3** 改 applyNDProxy / state(DeviceState.NDProxy) / reapNDProxyOrphans 用 `.addresses`（保持内核逐地址行为不变）
-- [ ] **ND1-4** 校验：prefix 合法 IPv6 CIDR、neighbor 合法 MAC（config/ndp.go）
+- [x] **ND1-1** 新增 `NDProxy` 结构：`{addresses []string, router *bool, rules []NDProxyRule}`；`NDProxyRule{Prefix, Neighbor}`
+- [x] **ND1-2** 把 Ethernet/Vlan/Bridge/Bond 的 `NDProxy []string`（旧扁平）迁移为 `NDProxy *NDProxy`（`ndp-proxy` 块）；`addresses` 子键 = 原内核 proxy_ndp
+- [x] **ND1-3** 改 applyNDProxy / state(DeviceState.NDProxy) / reapNDProxyOrphans 用 `.addresses`（保持内核逐地址行为不变）
+- [x] **ND1-4** 校验：prefix 合法 IPv6 CIDR、neighbor 合法 MAC（config/ndp.go）
 
 ### ND2 响应器核心（纯 Go）
 - [ ] **ND2-1** netlink 层：`SetAllmulti(iface, bool)`（vishvananda LinkSetAllmulticastOn/Off）

@@ -243,7 +243,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "ethernet",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
-			NDProxy:   cfg.NDProxy,
+			NDProxy:   ndProxyAddrs(cfg.NDProxy),
 			CreatedBy: "system", // 物理设备
 		}
 	}
@@ -264,7 +264,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "bridge",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
-			NDProxy:   cfg.NDProxy,
+			NDProxy:   ndProxyAddrs(cfg.NDProxy),
 			CreatedBy: "netcfg",
 		}
 	}
@@ -275,7 +275,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "bond",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
-			NDProxy:   cfg.NDProxy,
+			NDProxy:   ndProxyAddrs(cfg.NDProxy),
 			CreatedBy: "netcfg",
 		}
 	}
@@ -286,7 +286,7 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Type:      "vlan",
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
-			NDProxy:   cfg.NDProxy,
+			NDProxy:   ndProxyAddrs(cfg.NDProxy),
 			CreatedBy: "netcfg",
 		}
 	}
@@ -1889,21 +1889,30 @@ func ensureSRv6Dummy(mgr *nl.NetlinkManager, name string) error {
 	return mgr.SetLinkUp(name)
 }
 
-// applyNDProxy 内核 NDP 代理：开 proxy_ndp + 为每个 IPv6 地址加 NTF_PROXY 邻居（best-effort）。
-func applyNDProxy(mgr *nl.NetlinkManager, name string, addrs []string) {
-	if len(addrs) == 0 {
+// applyNDProxy 处理 ndp-proxy 块的内核部分（addresses=逐 /128 proxy_ndp）。
+// rules（按前缀响应器）由 netcfg daemon 跑，不在一次性 apply 里。best-effort。
+func applyNDProxy(mgr *nl.NetlinkManager, name string, ndp *config.NDProxy) {
+	if ndp == nil || len(ndp.Addresses) == 0 {
 		return
 	}
 	if err := mgr.EnableProxyNDP(name); err != nil {
 		slog.Warn("failed to enable proxy_ndp", "device", name, "error", err)
 	}
-	for _, ip := range addrs {
+	for _, ip := range ndp.Addresses {
 		if err := mgr.AddProxyNDP(name, ip); err != nil {
 			slog.Warn("failed to add nd-proxy", "device", name, "ip", ip, "error", err)
 		} else {
 			slog.Info("added nd-proxy", "device", name, "ip", ip)
 		}
 	}
+}
+
+// ndProxyAddrs 取 ndp-proxy 块的内核地址列表（用于 state/回收）。
+func ndProxyAddrs(n *config.NDProxy) []string {
+	if n == nil {
+		return nil
+	}
+	return n.Addresses
 }
 
 // runPostScript 运行后置脚本
