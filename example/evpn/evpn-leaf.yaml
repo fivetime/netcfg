@@ -1,8 +1,10 @@
 # EVPN-VXLAN 叶子节点 —— 数据面（netcfg）。控制面（BGP EVPN）见同目录 frr.conf。
 #
-# 分工：netcfg/内核负责 VTEP 源 IP、VXLAN 隧道、vlan-aware 网桥、VRF（L3VNI）；
-#       FRR 负责 MAC/IP 的学习与通告——VXLAN 用 external 模式关闭内核自学习，
-#       由 EVPN 控制面下发 FDB/邻居（advertise-all-vni）。
+# 分工：netcfg/内核负责 VTEP 源 IP、每 VNI 一个 VXLAN、二层网桥、VRF（L3VNI）；
+#       FRR 负责 MAC/IP 的学习与通告——VXLAN learning off，由 EVPN 控制面经 netlink
+#       下发 FDB/邻居（advertise-all-vni 自动发现并通告本地 VNI）。
+# 模型：传统「每 VNI 一个 vxlan + 一个普通网桥」（FRR EVPN 最常用、最稳）。
+#       L2VNI = vni-10010，L3VNI = vni-l3-10。
 network:
   version: 2
 
@@ -19,10 +21,10 @@ network:
       interfaces: [br-evpn, br-l3vni]
 
   bridges:
-    # 二层 overlay（vlan-aware）：承载租户 L2VNI；租户网关 IP 直接放网桥
+    # L2VNI 的二层域：普通网桥（每 VNI 一桥），桥自身 IP = 租户 anycast 网关(IRB)。
+    # 传统模型用普通网桥；vlan-aware 多 VNI 需 vlan_tunnel 映射，netcfg 暂不配。
     br-evpn:
-      vlan-filtering: true
-      interfaces: [vni-10010]      # + 业务接入口（access 网卡）
+      interfaces: [vni-10010]      # L2VNI vxlan（+ 业务接入网卡）
       addresses: [10.10.10.1/24]   # 租户网关（advertise-svi-ip 由 FRR 通告）
       parameters: { stp: false, forward-delay: 0 }
     # L3VNI 载体网桥（对称 IRB 的路由 VNI），纳入同一 VRF

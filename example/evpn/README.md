@@ -4,7 +4,7 @@ BGP EVPN over VXLAN 的职责天然分两层，本目录各给一个示例：
 
 | 文件 | 层 | 负责 |
 |------|----|------|
-| `evpn-leaf.yaml` | **数据面**（netcfg / 内核） | VTEP 源 IP、每 VNI 一个 VXLAN（learning off）、vlan-aware 网桥、VRF（L3VNI） |
+| `evpn-leaf.yaml` | **数据面**（netcfg / 内核） | VTEP 源 IP、**L2VNI**(vni-10010)+**L3VNI**(vni-l3-10) 各一个 VXLAN（learning off）、每 VNI 一个普通网桥、VRF |
 | `frr.conf` | **控制面**（FRR / BGP EVPN） | 与 RR 的 EVPN 邻居、`advertise-all-vni`、L3VNI(type-5) 的 RD/RT |
 
 ## 工作方式
