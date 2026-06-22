@@ -1,0 +1,50 @@
+# EVPN-VXLAN 叶子节点 —— 数据面（netcfg）。控制面（BGP EVPN）见同目录 frr.conf。
+#
+# 分工：netcfg/内核负责 VTEP 源 IP、VXLAN 隧道、vlan-aware 网桥、VRF（L3VNI）；
+#       FRR 负责 MAC/IP 的学习与通告——VXLAN 用 external 模式关闭内核自学习，
+#       由 EVPN 控制面下发 FDB/邻居（advertise-all-vni）。
+network:
+  version: 2
+
+  # VTEP / BGP-EVPN 源 IP —— frr.conf 的 update-source 与通告本端用它
+  dummy-devices:
+    lo-vtep:
+      addresses: [192.168.255.4/32]
+
+  # 租户 L3 路由域（L3VNI）；对应 frr.conf 的 `vrf vrf-10` + `vni 10`
+  # 把承载 overlay/L3VNI 的网桥纳入 VRF（网桥即该 VRF 的 L3 设备）
+  vrfs:
+    vrf-10:
+      table: 1010
+      interfaces: [br-evpn, br-l3vni]
+
+  bridges:
+    # 二层 overlay（vlan-aware）：承载租户 L2VNI；租户网关 IP 直接放网桥
+    br-evpn:
+      vlan-filtering: true
+      interfaces: [vni-10010]      # + 业务接入口（access 网卡）
+      addresses: [10.10.10.1/24]   # 租户网关（advertise-svi-ip 由 FRR 通告）
+      parameters: { stp: false, forward-delay: 0 }
+    # L3VNI 载体网桥（对称 IRB 的路由 VNI），纳入同一 VRF
+    br-l3vni:
+      interfaces: [vni-l3-10]
+      parameters: { stp: false, forward-delay: 0 }
+
+  tunnels:
+    # L2VNI：租户二层延伸。mac-learning=false 关内核自学习(FRR 经 netlink 下发 FDB)；
+    # neigh-suppress=true 做 ARP/ND 抑制（EVPN 标准）
+    vni-10010:
+      mode: vxlan
+      id: 10010
+      local: 192.168.255.4
+      mac-learning: false
+      neigh-suppress: true
+    # L3VNI：跨子网路由（VNI 10，对应 frr.conf vrf-10 / `vni 10`）
+    vni-l3-10:
+      mode: vxlan
+      id: 10
+      local: 192.168.255.4
+      mac-learning: false
+
+# 注：netcfg 按固定顺序建设备（vlan 早于 bridge），故本例用「网关 IP 放网桥 +
+# 网桥纳入 VRF」而非 vlan-on-bridge 的 SVI；多租户多 VLAN 的 per-VLAN SVI 见 README。

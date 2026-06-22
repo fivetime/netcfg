@@ -13,6 +13,8 @@
 | `full-example.yaml` | netns 综合：default + 多 netns + 跨 ns veth + macvlan |
 | `vpp-example.yaml` | VPP 后端：af-packet/dpdk/loopback、bond、vlan、vxlan、bridge+BVI，以及 NAT44/64/66（netcfg 扩展，见 `docs/vpp-backend-design.md`）|
 
+另见 `evpn/` 子目录：EVPN-VXLAN 数据面（netcfg）+ 控制面（FRR，去敏精简）配对示例。
+
 另见 `netplan/` 子目录：收录全部 35 个**官方 netplan 示例**（100% 兼容，均经
 `netcfg generate` 验证），覆盖 netplan 的所有特性，可直接 `netcfg apply`。
 
