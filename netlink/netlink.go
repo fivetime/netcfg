@@ -572,7 +572,7 @@ func (m *NetlinkManager) AddBond(name string, opts *BondOptions) error {
 		bond.NumPeerNotif = opts.GratuitousARP
 	}
 	if opts.PacketsPerSlave != 0 {
-		bond.PackersPerSlave = opts.PacketsPerSlave
+		bond.PacketsPerSlave = opts.PacketsPerSlave
 	}
 	if opts.ResendIGMP != 0 {
 		bond.ResendIgmp = opts.ResendIGMP
@@ -1458,6 +1458,13 @@ type RouteOptions struct {
 	Type   string // unicast|local|broadcast|anycast|multicast|blackhole|unreachable|prohibit|throw|nat
 	OnLink bool
 	MTU    int
+	Encap  *SEG6EncapOpts // SRv6 transit 封装（seg6）；nil 表示无
+}
+
+// SEG6EncapOpts 描述一条路由的 SRv6 transit 封装。
+type SEG6EncapOpts struct {
+	Mode     string   // encap（默认）| inline
+	Segments []string // 段列表（IPv6）
 }
 
 // AddRouteOpts 按 RouteOptions 添加路由，支持 from/scope/type/on-link/mtu 等高级字段。
@@ -1535,7 +1542,41 @@ func (m *NetlinkManager) AddRouteOpts(opts *RouteOptions) error {
 		route.MTU = opts.MTU
 	}
 
+	// SRv6 transit 封装（seg6）
+	if opts.Encap != nil {
+		enc, err := buildSEG6Encap(opts.Encap)
+		if err != nil {
+			return err
+		}
+		route.Encap = enc
+	}
+
+	// 带 encap 的路由用 RouteReplace 幂等下发（重复 apply 不报 "file exists"）；
+	// 普通路由保持 RouteAdd 行为不变。
+	if opts.Encap != nil {
+		return m.handle.RouteReplace(route)
+	}
 	return m.handle.RouteAdd(route)
+}
+
+// buildSEG6Encap 把配置层的 SEG6EncapOpts 转成 netlink.SEG6Encap。
+func buildSEG6Encap(o *SEG6EncapOpts) (*netlink.SEG6Encap, error) {
+	mode := nl.SEG6_IPTUN_MODE_ENCAP
+	if strings.EqualFold(o.Mode, "inline") {
+		mode = nl.SEG6_IPTUN_MODE_INLINE
+	}
+	if len(o.Segments) == 0 {
+		return nil, fmt.Errorf("seg6 encap requires at least one segment")
+	}
+	segs := make([]net.IP, 0, len(o.Segments))
+	for _, s := range o.Segments {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid seg6 segment %q", s)
+		}
+		segs = append(segs, ip)
+	}
+	return &netlink.SEG6Encap{Mode: mode, Segments: segs}, nil
 }
 
 func parseRouteScope(s string) (netlink.Scope, bool) {
@@ -1681,7 +1722,7 @@ func (m *NetlinkManager) AddRule(from, to string, table, priority, mark int) err
 	}
 
 	if mark > 0 {
-		rule.Mark = mark
+		rule.Mark = uint32(mark) // 新版 netlink Rule.Mark 由 int 改为 uint32
 	}
 
 	return m.handle.RuleAdd(rule)

@@ -400,3 +400,42 @@
 - [x] 状态持久化和恢复 - 配置状态保存在 /var/lib/netcfg/state.json
 - [x] netns 管理命令 (netns list/create/delete/exec)
 - [x] 配置试用自动回滚 (`netcfg try --timeout`)
+
+## SRv6（内核态 seg6，netcfg 扩展）—— 见 docs/srv6-design.md
+依赖底层切到本地 netlink（含 VrfTable/全 action）。语法：routes[].encap + 顶层 srv6 段。
+
+### S0 底层切换（前置）
+- [x] **S0-1** go.mod 加 `replace github.com/vishvananda/netlink => C:/MyProjects/OpenSource/Kubernetes/netlink`
+- [x] **S0-2** 修编译破坏：`netlink/netlink.go:575` `PackersPerSlave` → `PacketsPerSlave`
+- [x] **S0-3** `go mod tidy`（netns v0.0.4→v0.0.5）+ 全量 `go build ./...` 通过
+- [x] **S0-4** 回归：跑现有内核单测 + 兼容性 sweep（35 netplan 例子）确认切换无回归
+
+### S1 配置 schema + 校验
+- [x] **S1-1** Route 加 `Encap *RouteEncap`（type/mode/segments）
+- [x] **S1-2** Network + Namespace 加 `SRv6 *SRv6Config`（enabled/interfaces/local-sids）
+- [x] **S1-3** SRv6LocalSID 结构（sid/action/table/vrf-table/nh4/nh6/iif/oif/segments）
+- [x] **S1-4** supportedNetworkKeys += srv6；mergeConfig 处理 SRv6
+- [x] **S1-5** config/srv6.go：ValidateSRv6（encap mode/segments、action 必填矩阵、地址族），接入 LoadConfig
+
+### S2 transit encap（routes[].encap）
+- [x] **S2-1** nl.RouteOptions 加 Encap 字段；AddRouteOpts 设 `&netlink.SEG6Encap{Mode,Segments}`
+- [x] **S2-2** addRoute 透传 encap；mode encap/inline → 常量
+- [x] **S2-3** 容器验证：encap/inline 两种 + `ip -6 route show` 断言 SRH
+
+### S3 本地 SID（seg6local）+ sysctl
+- [x] **S3-1** sysctl：all/<if> seg6_enabled（复用 writeSysctl）
+- [x] **S3-2** nl 层 AddLocalSID(sid, action, params)：构造 SEG6LocalEncap + Flags 置位 + RouteReplace
+- [x] **S3-3** setupSRv6：遍历 local-sids 下发（含 action→Flags 映射表）
+- [x] **S3-4** 接入 applyNamespaceConfig（default + netns）
+- [x] **S3-5** 容器验证：每个 action 一条，`ip -6 route show` + `seg6local` 断言
+
+### S4 幂等 + 回收
+- [x] **S4-1** RouteReplace 幂等；state 记录本次 SID 集合（按 netns）
+- [x] **S4-2** reap：删除已不在配置中的 local SID
+- [x] **S4-3** 容器验证：重复 apply 0 变化；删 SID 后回收
+
+### S5 示例 + 文档 + 真机
+- [x] **S5-1** example/srv6/：transit + endpoint 完整示例 + README
+- [x] **S5-2** README/INTRODUCTION 加 SRv6 段
+- [x] **S5-3** machine1 隔离容器真机验证（kernel 6.8）
+- [x] **S5-4** memory 更新

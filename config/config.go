@@ -37,7 +37,8 @@ var supportedNetworkKeys = map[string]bool{
 	"bridges": true, "bonds": true, "vlans": true,
 	"tunnels": true, "vrfs": true,
 	"tun-devices": true, "tap-devices": true, "netns": true,
-	"vpp": true, // VPP 后端全局段（docs/vpp-backend-design.md）
+	"vpp":  true, // VPP 后端全局段（docs/vpp-backend-design.md）
+	"srv6": true, // SRv6 (seg6) 段（docs/srv6-design.md）
 }
 
 // warnUnsupportedConfig 解析原始 YAML 顶层结构，对 netcfg 不支持/会忽略的配置段
@@ -105,8 +106,34 @@ type Network struct {
 	// VPP 后端全局配置（运行时/启动；netcfg 新增，见 docs/vpp-backend-design.md）
 	VPP *VPPGlobal `yaml:"vpp,omitempty"`
 
+	// SRv6（内核态 seg6）：本地 SID 表 + seg6_enabled。netcfg 扩展，见 docs/srv6-design.md。
+	SRv6 *SRv6Config `yaml:"srv6,omitempty"`
+
 	// netns 配置
 	Netns map[string]*Namespace `yaml:"netns,omitempty"`
+}
+
+// SRv6Config 内核态 SRv6（seg6）配置。netcfg 扩展，非 netplan 标准。
+type SRv6Config struct {
+	Enabled    *bool           `yaml:"enabled,omitempty"`    // net.ipv6.conf.all.seg6_enabled
+	Interfaces []string        `yaml:"interfaces,omitempty"` // 各口 seg6_enabled（入向处理 SRH）
+	Device     string          `yaml:"device,omitempty"`     // SID 锚定设备（默认自动建 dummy "srv6"；内核拒绝 lo 上的 seg6local）
+	LocalSIDs  []*SRv6LocalSID `yaml:"local-sids,omitempty"` // 本地 SID 表（endpoint 行为）
+}
+
+// SRv6LocalSID 一条本地 SID（= 一条 <sid>/128 的 seg6local 路由）。
+// 各 action 的字段需求见 docs/srv6-design.md 矩阵。
+type SRv6LocalSID struct {
+	SID      string   `yaml:"sid"`                 // 本地 SID（IPv6，未带前缀则按 /128）
+	Action   string   `yaml:"action"`              // End / End.X / End.DT6 ... 见设计文档
+	Table    int      `yaml:"table,omitempty"`     // End.T / End.DT6 查表
+	VRFTable int      `yaml:"vrf-table,omitempty"` // End.DT4 / End.DT46 VRF 表
+	NH4      string   `yaml:"nh4,omitempty"`       // End.DX4 下一跳（IPv4）
+	NH6      string   `yaml:"nh6,omitempty"`       // End.X / End.DX6 下一跳（IPv6）
+	IIF      string   `yaml:"iif,omitempty"`       // 入接口
+	OIF      string   `yaml:"oif,omitempty"`       // 出接口（End.X / End.DX2）
+	Segments []string `yaml:"segments,omitempty"`  // End.B6 / End.B6.Encaps 段列表
+	Dev      string   `yaml:"dev,omitempty"`       // 锚定设备（覆盖 srv6.device）
 }
 
 // Namespace 网络命名空间配置
@@ -128,6 +155,7 @@ type Namespace struct {
 	Vrfs             map[string]*Vrf             `yaml:"vrfs,omitempty"`
 	TunDevices       map[string]*TunTapDevice    `yaml:"tun-devices,omitempty"`
 	TapDevices       map[string]*TunTapDevice    `yaml:"tap-devices,omitempty"`
+	SRv6             *SRv6Config                 `yaml:"srv6,omitempty"` // 本 netns 的 SRv6（见 docs/srv6-design.md）
 	PostScript       string                      `yaml:"post-script,omitempty"`
 }
 
@@ -706,6 +734,16 @@ type Route struct {
 	Type   string `yaml:"type,omitempty"`
 	OnLink *bool  `yaml:"on-link,omitempty"`
 	MTU    int    `yaml:"mtu,omitempty"`
+
+	// Encap：路由封装。目前支持 SRv6 transit（type: seg6），见 docs/srv6-design.md。
+	Encap *RouteEncap `yaml:"encap,omitempty"`
+}
+
+// RouteEncap 路由封装（SRv6 transit）。netcfg 扩展，非 netplan 标准。
+type RouteEncap struct {
+	Type     string   `yaml:"type"`               // 目前仅 "seg6"
+	Mode     string   `yaml:"mode,omitempty"`     // seg6: encap（默认）| inline
+	Segments []string `yaml:"segments,omitempty"` // seg6 段列表（IPv6）
 }
 
 // RoutingPolicy 路由策略配置
@@ -842,6 +880,7 @@ func (n *Network) ToNamespace() *Namespace {
 		Vrfs:             n.Vrfs,
 		TunDevices:       n.TunDevices,
 		TapDevices:       n.TapDevices,
+		SRv6:             n.SRv6,
 	}
 }
 
@@ -919,6 +958,11 @@ func LoadConfig(dirPath string) (*Config, error) {
 		return nil, err
 	}
 
+	// SRv6 合法性校验（encap mode/segments、local-sid action 必填矩阵、地址族）
+	if err := ValidateSRv6(merged); err != nil {
+		return nil, err
+	}
+
 	return merged, nil
 }
 
@@ -949,6 +993,9 @@ func mergeConfig(dst, src *Config) {
 	// 合并渲染器
 	if src.Network.VPP != nil {
 		dst.Network.VPP = src.Network.VPP // VPP 全局段（后文件覆盖前文件）
+	}
+	if src.Network.SRv6 != nil {
+		dst.Network.SRv6 = src.Network.SRv6 // SRv6 全局段（后文件覆盖前文件）
 	}
 	if src.Network.Renderer != "" {
 		dst.Network.Renderer = src.Network.Renderer

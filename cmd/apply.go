@@ -65,6 +65,9 @@ func Apply(cfg *config.Config) error {
 		slog.Warn("failed to apply some removals", "error", err)
 	}
 
+	// 1.5 回收已不在配置中的 SRv6 本地 SID（状态对比，不走设备 diff）
+	reapSRv6Orphans(oldState, newState)
+
 	// 2. 创建所有 netns
 	for nsName := range cfg.Network.Netns {
 		if nl.NetnsExists(nsName) {
@@ -107,6 +110,52 @@ func Apply(cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// reapSRv6Orphans 删除 oldState 有、newState 无的 SRv6 本地 SID（按 netns）。
+func reapSRv6Orphans(oldState, newState *state.State) {
+	for ns, oldNs := range oldState.Namespaces {
+		if oldNs == nil || len(oldNs.SRv6SIDs) == 0 {
+			continue
+		}
+		keep := map[string]bool{}
+		if newNs := newState.Namespaces[ns]; newNs != nil {
+			for _, sid := range newNs.SRv6SIDs {
+				keep[sid] = true
+			}
+		}
+		var removed []string
+		for _, sid := range oldNs.SRv6SIDs {
+			if !keep[sid] {
+				removed = append(removed, sid)
+			}
+		}
+		if len(removed) == 0 {
+			continue
+		}
+
+		var mgr *nl.NetlinkManager
+		var err error
+		if ns == "" {
+			mgr, err = nl.New()
+		} else {
+			if !nl.NetnsExists(ns) {
+				continue
+			}
+			mgr, err = nl.NewWithNetns(ns)
+		}
+		if err != nil {
+			slog.Warn("failed to get manager for srv6 sid removal", "ns", ns, "error", err)
+			continue
+		}
+		for _, sid := range removed {
+			slog.Info("removing srv6 local sid", "sid", sid, "netns", ns)
+			if err := mgr.DeleteLocalSID(sid); err != nil {
+				slog.Warn("failed to remove srv6 local sid", "sid", sid, "error", err)
+			}
+		}
+		mgr.Close()
+	}
 }
 
 // buildStateFromConfig 从配置构建状态
@@ -281,6 +330,13 @@ func buildNsState(ns *config.Namespace) *state.NsState {
 			Addresses: addrStrings(cfg.Addresses),
 			Routes:    routesToStrings(cfg.Routes),
 			CreatedBy: "netcfg",
+		}
+	}
+
+	// SRv6 本地 SID（用于增量回收）
+	if ns.SRv6 != nil {
+		for _, s := range ns.SRv6.LocalSIDs {
+			nsState.SRv6SIDs = append(nsState.SRv6SIDs, s.SID)
 		}
 	}
 
@@ -539,6 +595,11 @@ func applyNamespaceConfig(nsName string, cfg *config.Namespace) error {
 	// 9. Veth 设备（需要特殊处理跨 netns）
 	if err := setupVethDevices(mgr, nsName, cfg.VethDevices); err != nil {
 		return fmt.Errorf("failed to setup veth devices: %w", err)
+	}
+
+	// 9.5 SRv6（seg6_enabled + 本地 SID）。放在所有设备之后：oif/iif 须已存在。
+	if err := setupSRv6(mgr, nsName, cfg.SRv6); err != nil {
+		return fmt.Errorf("failed to setup srv6: %w", err)
 	}
 
 	// 10. 后置脚本
@@ -1659,8 +1720,17 @@ func addRoute(mgr *nl.NetlinkManager, dev string, route *config.Route) error {
 		onLink = *route.OnLink
 	}
 
+	var encap *nl.SEG6EncapOpts
+	if route.Encap != nil {
+		if err := config.ValidateRouteEncap(route.Encap); err != nil {
+			return err
+		}
+		encap = &nl.SEG6EncapOpts{Mode: route.Encap.Mode, Segments: route.Encap.Segments}
+	}
+
 	slog.Info("adding route", "to", to, "via", route.Via, "device", dev,
-		"table", route.Table, "scope", route.Scope, "type", route.Type, "on-link", onLink)
+		"table", route.Table, "scope", route.Scope, "type", route.Type, "on-link", onLink,
+		"seg6", encap != nil)
 	return mgr.AddRouteOpts(&nl.RouteOptions{
 		Dst:    to,
 		Gw:     route.Via,
@@ -1672,7 +1742,86 @@ func addRoute(mgr *nl.NetlinkManager, dev string, route *config.Route) error {
 		Type:   route.Type,
 		OnLink: onLink,
 		MTU:    route.MTU,
+		Encap:  encap,
 	})
+}
+
+// setupSRv6 配置内核态 SRv6：seg6_enabled sysctl（all + 各接口）+ 本地 SID（seg6local）。
+// 见 docs/srv6-design.md。
+func setupSRv6(mgr *nl.NetlinkManager, nsName string, cfg *config.SRv6Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	// seg6_enabled：全局
+	if cfg.Enabled != nil && *cfg.Enabled {
+		if err := mgr.EnableSeg6("all"); err != nil {
+			slog.Warn("failed to enable seg6 (all)", "netns", nsName, "error", err)
+		}
+	}
+	// seg6_enabled：各接口（入向处理 SRH）。接口可能后建/外部，失败仅告警。
+	for _, iface := range cfg.Interfaces {
+		if err := mgr.EnableSeg6(iface); err != nil {
+			slog.Warn("failed to enable seg6 on interface", "interface", iface, "netns", nsName, "error", err)
+		}
+	}
+
+	// End.DT4/DT46（vrftable 解封）需要 net.vrf.strict_mode=1，否则内核 EPERM。
+	needStrict := false
+	for _, s := range cfg.LocalSIDs {
+		if s.VRFTable > 0 {
+			needStrict = true
+			break
+		}
+	}
+	if needStrict {
+		if err := mgr.EnableVRFStrictMode(); err != nil {
+			slog.Warn("failed to enable vrf strict_mode (needed for End.DT4/DT46)", "error", err)
+		}
+	}
+
+	// 本地 SID（endpoint 行为），幂等下发。
+	// 锚定设备：per-SID dev → srv6.device → 自动建 dummy "srv6"。
+	// 注意：seg6local 必须挂真实设备，内核静默丢弃 lo 上的封装。
+	autoDevReady := false
+	for _, s := range cfg.LocalSIDs {
+		dev := s.Dev
+		if dev == "" {
+			dev = cfg.Device
+		}
+		if dev == "" {
+			dev = "srv6"
+			if !autoDevReady {
+				if err := ensureSRv6Dummy(mgr, "srv6"); err != nil {
+					return fmt.Errorf("ensure srv6 anchor device: %w", err)
+				}
+				autoDevReady = true
+			}
+		}
+		slog.Info("adding srv6 local sid", "sid", s.SID, "action", s.Action, "dev", dev, "netns", nsName)
+		err := mgr.AddLocalSID(dev, &nl.SRv6LocalSIDOpts{
+			SID: s.SID, Action: s.Action,
+			Table: s.Table, VRFTable: s.VRFTable,
+			NH4: s.NH4, NH6: s.NH6, IIF: s.IIF, OIF: s.OIF,
+			Segments: s.Segments,
+		})
+		if err != nil {
+			// 单条 SID 失败仅告警续做（不同内核支持的 action 不同），不阻断其余配置
+			slog.Warn("failed to add srv6 local sid", "sid", s.SID, "action", s.Action, "error", err)
+		}
+	}
+	return nil
+}
+
+// ensureSRv6Dummy 确保 SID 锚定 dummy 设备存在且 up（seg6local 不能挂 lo）。
+func ensureSRv6Dummy(mgr *nl.NetlinkManager, name string) error {
+	if !mgr.LinkExists(name) {
+		slog.Info("creating srv6 anchor dummy device", "name", name)
+		if err := mgr.AddDummyDevice(name); err != nil {
+			return err
+		}
+	}
+	return mgr.SetLinkUp(name)
 }
 
 // runPostScript 运行后置脚本

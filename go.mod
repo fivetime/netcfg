@@ -6,11 +6,15 @@ go 1.25.0
 // 版本精确、离线；正式发布前可改为带版本的 require。
 replace go.fd.io/govpp => C:/MyProjects/OpenSource/Kubernetes/govpp
 
+// netlink 指向本地上游最新检出（含 seg6 VrfTable/全 action、幂等 RouteReplace）；
+// require 行保留 v1.1.0，由 replace 接管源码。正式发布前可改回带版本 require。
+replace github.com/vishvananda/netlink => C:/MyProjects/OpenSource/Kubernetes/netlink
+
 require (
 	github.com/insomniacslk/dhcp v0.0.0-20260603135910-a415979eb11e
 	github.com/spf13/cobra v1.10.2
 	github.com/vishvananda/netlink v1.1.0
-	github.com/vishvananda/netns v0.0.4
+	github.com/vishvananda/netns v0.0.5
 	go.fd.io/govpp v0.0.0-00010101000000-000000000000
 	golang.org/x/sys v0.40.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10

@@ -1,0 +1,74 @@
+# 内核态 SRv6 (Segment Routing over IPv6) 完整示例。netcfg 扩展，见 docs/srv6-design.md。
+#
+# 两部分：
+#   1) transit/引流 —— 在 routes 上加 encap(type: seg6)，把流量压入 SRH 按段转发；
+#   2) endpoint/本地 SID —— 顶层 srv6.local-sids，本节点对落到 SID 的报文执行 End.* 行为。
+# srv6.enabled/interfaces 负责 seg6_enabled sysctl（入向处理 SRH 必需）。
+network:
+  version: 2
+
+  # SID 定位器（locator）通常挂在 loopback/dummy 上并通过 IGP/BGP 通告
+  dummy-devices:
+    lo-srv6:
+      addresses: [2001:db8:0:ffff::1/128]
+
+  ethernets:
+    eth0:
+      addresses: [2001:db8:1::1/64]
+      routes:
+        # transit：去往 2001:db8:ff::/48 的流量压入 SRH（encap 模式，新外层 IPv6）
+        - to: 2001:db8:ff::/48
+          encap:
+            type: seg6
+            mode: encap                # encap（默认）| inline（就地插 SRH）
+            segments:                  # 段列表
+              - 2001:db8:a::1
+              - 2001:db8:b::1
+        # inline：就地插入 SRH（不加外层）
+        - to: 2001:db8:ee::/48
+          encap:
+            type: seg6
+            mode: inline
+            segments: [2001:db8:c::1]
+
+  # L3VNI 风格的 VRF（供 End.DT4/DT6 解封后查表）
+  vrfs:
+    vrf-cust:
+      table: 100
+
+  srv6:
+    enabled: true                      # net.ipv6.conf.all.seg6_enabled=1
+    interfaces: [eth0]                 # net.ipv6.conf.eth0.seg6_enabled=1
+    device: lo-srv6                    # SID 锚定设备（真实设备；不填则自动建 dummy "srv6"）
+    local-sids:                        # 注：DT4/DT46 用 vrf-table，netcfg 会自动开 net.vrf.strict_mode
+      # 纯中转 endpoint
+      - sid: 2001:db8:0:ffff::100
+        action: End
+      # L3 cross-connect（转发到 IPv6 下一跳；可选 oif）
+      - sid: 2001:db8:0:ffff::200
+        action: End.X
+        nh6: 2001:db8:1::2
+      # decap + IPv4 cross-connect
+      - sid: 2001:db8:0:ffff::a4
+        action: End.DX4
+        nh4: 10.0.0.1
+      # decap + IPv6 cross-connect
+      - sid: 2001:db8:0:ffff::a6
+        action: End.DX6
+        nh6: 2001:db8:2::1
+      # decap + 在指定 IPv6 表查路由（经典 per-table）
+      - sid: 2001:db8:0:ffff::d6
+        action: End.DT6
+        table: 100
+      # decap + IPv4 VRF 查表（新内核 vrftable）
+      - sid: 2001:db8:0:ffff::d4
+        action: End.DT4
+        vrf-table: 100
+      # decap + IPv4/IPv6 VRF 查表
+      - sid: 2001:db8:0:ffff::d46
+        action: End.DT46
+        vrf-table: 100
+      # 绑定 SID：再压入一段新 SRH（B6.Encaps）
+      - sid: 2001:db8:0:ffff::b6
+        action: End.B6.Encaps
+        segments: [2001:db8:b::1, 2001:db8:c::1]

@@ -31,7 +31,8 @@ type State struct {
 
 // NsState 单个 namespace 的状态
 type NsState struct {
-	Devices map[string]*DeviceState `json:"devices"`
+	Devices  map[string]*DeviceState `json:"devices"`
+	SRv6SIDs []string                `json:"srv6_sids,omitempty"` // 本 ns 下发的 SRv6 本地 SID（增量回收用）
 }
 
 // DeviceState 设备状态
