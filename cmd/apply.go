@@ -1397,7 +1397,10 @@ func setupVethDevices(mgr *nl.NetlinkManager, nsName string, devices map[string]
 		}
 		applyNameservers(mgr, name, cfg.Nameservers)
 
-		// 配置对端
+		// 配置对端：在对端实际所处的 namespace 里配置。
+		//   peerNs != ""        → 对端在具名 netns
+		//   peerNs == "" 且本端在 netns → 对端在 default namespace（用 nl.New()）
+		//   peerNs == "" 且本端在 default → 对端与本端同处 default（复用 mgr）
 		if peerNs != "" {
 			peerMgr, err := nl.NewWithNetns(peerNs)
 			if err != nil {
@@ -1410,10 +1413,21 @@ func setupVethDevices(mgr *nl.NetlinkManager, nsName string, devices map[string]
 			}
 			peerMgr.Close()
 		} else if nsName == "" {
-			// 对端在同一个 namespace
+			// 对端在同一个 default namespace，复用 mgr
 			if err := setupDevice(mgr, peerName, cfg.Peer.Addresses, cfg.Peer.Routes, cfg.Peer.MTU, cfg.Peer.MacAddress); err != nil {
 				return fmt.Errorf("failed to setup veth peer %s: %w", peerName, err)
 			}
+		} else {
+			// 本端在 netns、对端在 default namespace（peer.netns: ""）
+			defaultMgr, err := nl.New()
+			if err != nil {
+				return fmt.Errorf("failed to get default namespace for peer %s: %w", peerName, err)
+			}
+			if err := setupDevice(defaultMgr, peerName, cfg.Peer.Addresses, cfg.Peer.Routes, cfg.Peer.MTU, cfg.Peer.MacAddress); err != nil {
+				defaultMgr.Close()
+				return fmt.Errorf("failed to setup veth peer %s: %w", peerName, err)
+			}
+			defaultMgr.Close()
 		}
 	}
 

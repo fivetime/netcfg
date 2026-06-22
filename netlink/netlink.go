@@ -99,12 +99,30 @@ func CreateNetns(name string) error {
 		return fmt.Errorf("failed to create netns dir: %w", err)
 	}
 
-	// 创建命名空间
+	// netns.NewNamed 会把【当前 OS 线程】切入新建的 netns 且不还原。若不在此处锁定
+	// 线程并切回原 namespace，调用方随后的 nl.New()（netlink.NewHandle 绑定当前线程
+	// 所在 ns）就会落到刚建的 netns 里——典型症状：default namespace 的设备被建到了
+	// 最后创建的 netns 中。故按 RunInNetns 的套路锁线程 + 保存 + 还原。
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	origNs, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("failed to get current netns: %w", err)
+	}
+	defer origNs.Close()
+
+	// 创建命名空间（NewNamed 会切入新 ns）
 	newNs, err := netns.NewNamed(name)
 	if err != nil {
 		return fmt.Errorf("failed to create netns %s: %w", name, err)
 	}
 	newNs.Close()
+
+	// 切回原 namespace，避免泄漏到后续 netlink 操作
+	if err := netns.Set(origNs); err != nil {
+		return fmt.Errorf("failed to restore netns after creating %s: %w", name, err)
+	}
 
 	return nil
 }

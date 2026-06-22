@@ -316,6 +316,68 @@ network:
 	assertHasAddr(t, nlh2, v2, "172.31.0.2/24")
 }
 
+// TestDefaultNsBridgeWithNetns 回归测试两个 netns 相关 bug：
+//  1. 配置同时含 default-ns 设备 + netns 时，CreateNetns 曾把当前线程切入新 netns
+//     不还原，导致 default-ns 的 bridge 被建到 netns 里。修复后 bridge 必须留在
+//     default ns、且 netns 内不应出现它。
+//  2. netns 内的 veth、对端 netns: ""（落 default ns）时，setupVethDevices 曾两个
+//     分支都不命中，对端地址从未配置。修复后对端须在 default ns 配好。
+func TestDefaultNsBridgeWithNetns(t *testing.T) {
+	apply(t, `
+network:
+  version: 2
+  bridges:
+    itbrx:
+      addresses: [10.97.0.1/24]
+  netns:
+    itnsx:
+      dummy-devices:
+        itnsdx:
+          addresses: [10.97.9.1/32]
+      veth-devices:
+        itvx:
+          addresses: [172.30.0.1/24]
+          peer:
+            name: itvx-peer
+            netns: ""
+            addresses: [172.30.0.2/24]
+`)
+	// bug #1：bridge 在 default ns 且带地址
+	br := mustLink(t, "itbrx")
+	assertHasAddr(t, nil, br, "10.97.0.1/24")
+
+	// bug #1：bridge 不应泄漏进 netns
+	hx, err := netns.GetFromName("itnsx")
+	if err != nil {
+		t.Fatalf("netns itnsx not created: %v", err)
+	}
+	defer hx.Close()
+	nlhx, err := netlink.NewHandleAt(hx)
+	if err != nil {
+		t.Fatalf("handle itnsx: %v", err)
+	}
+	defer nlhx.Delete()
+	if _, err := nlhx.LinkByName("itbrx"); err == nil {
+		t.Fatalf("bridge itbrx leaked into netns itnsx (namespace not restored after CreateNetns)")
+	}
+
+	// netns 内设备就绪
+	dx, err := nlhx.LinkByName("itnsdx")
+	if err != nil {
+		t.Fatalf("itnsdx not in itnsx: %v", err)
+	}
+	assertHasAddr(t, nlhx, dx, "10.97.9.1/32")
+	vx, err := nlhx.LinkByName("itvx")
+	if err != nil {
+		t.Fatalf("itvx not in itnsx: %v", err)
+	}
+	assertHasAddr(t, nlhx, vx, "172.30.0.1/24")
+
+	// bug #2：peer netns:"" 在 default ns 配好地址
+	peer := mustLink(t, "itvx-peer")
+	assertHasAddr(t, nil, peer, "172.30.0.2/24")
+}
+
 func TestIdempotency(t *testing.T) {
 	cfg := `
 network:
