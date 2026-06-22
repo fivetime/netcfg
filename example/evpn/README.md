@@ -28,10 +28,17 @@ vtysh -c 'show bgp l2vpn evpn summary'
 vtysh -c 'show evpn vni'
 ```
 
-## 去敏说明
-`frr.conf` 由真实部署精简而来——只保留**必要的 BGP EVPN 对等**：去掉了 BFD/timers、
-prefix-list、route-map、底层 underlay eBGP 细节；ASN（65001/65000）、IP（192.168.255.4 /
-2001:db8:ffff::1）、RD/RT（65000:10）均为**示例占位值**，按实际拓扑替换。
+## 两层必要对等（缺一不通）
+1. **Underlay eBGP**（`neighbor UNDERLAY` → 上联 spine/leaf）：传播各 VTEP loopback，
+   使本端、远端 VTEP 与 RR 互相**三层可达**——这是 VXLAN 隧道与 EVPN 会话能建立的前提。
+   例中用编号对等（peer=上联三层口）；也可换 BGP unnumbered（`neighbor <if> interface
+   remote-as external`）。上联口 IP（示例 192.0.2.x）随站点实际而定。
+2. **Overlay l2vpn evpn**（`neighbor EVPN-RR`）：经 underlay 可达后，与 RR 交换 EVPN 路由。
 
-> 提示：完整生产部署通常还需 underlay 路由（OSPF/eBGP 让各 VTEP loopback 互通）、
-> 多租户多 VNI、对称/非对称 IRB 选择等——本例为最小可读骨架。
+> 早先版本误把 underlay 也精简掉了——那样 RR/远端 VTEP 不可达，EVPN 起不来。现已补回。
+
+## 去敏说明
+`frr.conf` 由真实部署精简而来——保留**能跑通所需的最小对等**（underlay eBGP +
+overlay EVPN + L3VNI 的 RD/RT），去掉 BFD/timers 等非必要细节。ASN（65001/65000/65100）、
+IP（VTEP 192.168.255.4、RR 192.168.255.1、上联 192.0.2.1）、RD/RT（65000:10）均为
+**示例占位值**，按实际拓扑替换。多租户多 VNI、对称/非对称 IRB 等按需扩展。
