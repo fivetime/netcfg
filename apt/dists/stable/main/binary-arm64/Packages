@@ -1,0 +1,22 @@
+Package: netcfg
+Version: 0.2.2-1
+Architecture: arm64
+Maintainer: netcfg authors <jp.zdm2008@gmail.com>
+Installed-Size: 7851
+Depends: iproute2
+Conflicts: netplan.io
+Replaces: netplan.io
+Provides: netplan.io
+Filename: pool/stable/main/netcfg_0.2.2-1_arm64.deb
+Size: 2954824
+MD5sum: 8ceb3c80ec7a0b7c84abae794e191ff2
+SHA1: 86d0272e409a36688b51faf53f598f2907a7f48f
+SHA256: a4fa10c420c3a46f059be31f481a854e36144068140112b0a7c12a9fdf7bc53a
+Section: net
+Priority: optional
+Homepage: https://github.com/fivetime/netcfg
+Description: Network configuration tool with netplan compatibility and netns support.
+ netcfg is compatible with netplan YAML syntax and adds native support for
+ network namespaces (netns). It talks to the kernel via netlink directly
+ (no ip/iproute2 command dependency) and ships optional VPP/SRv6/NDP backends.
+

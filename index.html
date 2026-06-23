@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netcfg packages (apt / yum)</title>
+<style>
+ body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:2.5rem auto;padding:0 1rem;color:#1a1a1a}
+ h1{margin-bottom:.2rem} h2{margin-top:2rem;border-bottom:1px solid #eee;padding-bottom:.3rem}
+ code,pre{font-family:ui-monospace,Menlo,Consolas,monospace}
+ pre{background:#0d1117;color:#e6edf3;padding:1rem;border-radius:8px;overflow:auto}
+ .muted{color:#666}
+</style></head><body>
+<h1>netcfg packages</h1>
+<p class="muted">netplan-compatible Linux network configuration tool —
+signed apt &amp; yum repositories. Built for <code>amd64</code> and <code>arm64</code>.
+A single static package works across all Debian/Ubuntu (apt) and EL (yum) releases.</p>
+
+<h2>Debian / Ubuntu (apt)</h2>
+<pre>curl -fsSL https://fivetime.github.io/netcfg/netcfg-archive-keyring.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/netcfg-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/netcfg-archive-keyring.gpg] https://fivetime.github.io/netcfg/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/netcfg.list
+
+sudo apt-get update
+sudo apt-get install netcfg</pre>
+
+<h2>RHEL / Rocky / AlmaLinux / Fedora (yum/dnf)</h2>
+<pre>sudo rpm --import https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+
+sudo tee /etc/yum.repos.d/netcfg.repo >/dev/null <<REPO
+[netcfg]
+name=netcfg packages
+baseurl=https://fivetime.github.io/netcfg/rpm/\$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+REPO
+
+sudo dnf install netcfg</pre>
+
+<h2>Available versions</h2>
+<ul><li><code>0.2.2-1</code></li></ul>
+
+<p class="muted">Signing key: <a href="https://fivetime.github.io/netcfg/netcfg-archive-keyring.asc">netcfg-archive-keyring.asc</a>
+&middot; key id <code>8552419CE78B987F149D220554379868A4700BE0</code>. Raw package files are also attached to the
+<a href="https://github.com/fivetime/netcfg/releases">GitHub Releases</a>.</p>
+</body></html>

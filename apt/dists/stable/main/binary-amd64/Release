@@ -1,0 +1,6 @@
+Archive: stable
+Suite: stable
+Component: main
+Origin: netcfg community packages
+Label: netcfg
+Architecture: amd64
