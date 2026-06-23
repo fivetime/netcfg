@@ -1,17 +1,17 @@
 Package: netcfg
-Version: 0.2.2-1
+Version: 0.2.3-1
 Architecture: arm64
 Maintainer: netcfg authors <jp.zdm2008@gmail.com>
-Installed-Size: 7851
+Installed-Size: 7854
 Depends: iproute2
 Conflicts: netplan.io
 Replaces: netplan.io
 Provides: netplan.io
-Filename: pool/stable/main/netcfg_0.2.2-1_arm64.deb
-Size: 2954824
-MD5sum: 8ceb3c80ec7a0b7c84abae794e191ff2
-SHA1: 86d0272e409a36688b51faf53f598f2907a7f48f
-SHA256: a4fa10c420c3a46f059be31f481a854e36144068140112b0a7c12a9fdf7bc53a
+Filename: pool/stable/main/netcfg_0.2.3-1_arm64.deb
+Size: 2956302
+MD5sum: 5191b437948c45dffbc5ab02cc9eefaa
+SHA1: e1682c6f93536b45eb64c2313d3cb2021a252853
+SHA256: 28260133ad2927ce0e33b1da85b6e0ba54d27505fd7eb7a3e4f7f00bb637aa0d
 Section: net
 Priority: optional
 Homepage: https://github.com/fivetime/netcfg
