@@ -364,33 +364,59 @@ network:
 
 ## 安装方式
 
-### 二进制安装
+netcfg 是 `CGO_ENABLED=0` 纯静态二进制，一个包按架构（amd64/arm64）跨所有发行版。
+签名的 apt/yum 仓库托管在 GitHub Pages：<https://fivetime.github.io/netcfg/>。
+
+### apt 仓库（Debian/Ubuntu 及衍生，推荐）
 
 ```bash
-# 下载
-wget https://github.com/yourname/netcfg/releases/latest/download/netcfg-linux-amd64.tar.gz
-tar -xzf netcfg-linux-amd64.tar.gz
-
-# 安装
-sudo cp netcfg /usr/local/bin/
-sudo cp systemd/*.service /lib/systemd/system/
-sudo systemctl daemon-reload
+curl -fsSL https://fivetime.github.io/netcfg/netcfg-archive-keyring.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/netcfg-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/netcfg-archive-keyring.gpg] https://fivetime.github.io/netcfg/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/netcfg.list
+sudo apt-get update && sudo apt-get install netcfg
 ```
 
-### Debian/Ubuntu
+### yum 仓库（RHEL/Rocky/AlmaLinux/Fedora/openSUSE）
 
 ```bash
-wget https://github.com/yourname/netcfg/releases/latest/download/netcfg_amd64.deb
-sudo dpkg -i netcfg_amd64.deb
+sudo rpm --import https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+sudo tee /etc/yum.repos.d/netcfg.repo >/dev/null <<'REPO'
+[netcfg]
+name=netcfg packages
+baseurl=https://fivetime.github.io/netcfg/rpm/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+REPO
+sudo dnf install netcfg
+```
+
+### 直接下载包 / 二进制
+
+从 [Releases](https://github.com/fivetime/netcfg/releases) 下载对应架构的包或静态 tarball：
+
+```bash
+sudo apt install ./netcfg_*_amd64.deb                  # Debian/Ubuntu
+sudo dnf install ./netcfg-*.x86_64.rpm                 # RHEL/Fedora/openSUSE
+sudo apk add --allow-untrusted ./netcfg_*_x86_64.apk   # Alpine
+sudo pacman -U ./netcfg-*-x86_64.pkg.tar.zst           # Arch/Manjaro
+
+# 其余发行版（Gentoo/Void/NixOS 等）用静态 tarball
+tar -xzf netcfg-*-linux-amd64.tar.gz
+sudo install -Dm755 netcfg /usr/bin/netcfg
 ```
 
 ### 从源码编译
 
 ```bash
-git clone https://github.com/yourname/netcfg.git
+git clone https://github.com/fivetime/netcfg.git
 cd netcfg
-go build -o netcfg .
+make build && sudo make install   # 装到 /usr/bin/netcfg + systemd 单元
 ```
+
+> 发行版覆盖矩阵、打包/发布流程详见 [packaging/README.md](packaging/README.md)。
 
 ## 项目状态
 
