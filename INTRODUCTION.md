@@ -210,6 +210,7 @@
 | `netcfg show <iface>` | 显示接口详细信息 |
 | `netcfg try [--timeout N]` | 试用配置，超时自动回滚 |
 | `netcfg daemon` | 启动 DHCP 守护进程 |
+| `netcfg takeover [--revert]` | 接管 netplan：移走/还原其 systemd-networkd 后端文件 |
 | `netcfg destroy` | 删除配置的网络命名空间 |
 | `netcfg rebind [iface]` | 重绑 SR-IOV VF 到驱动 |
 | `netcfg netns list` | 列出网络命名空间 |
@@ -414,6 +415,18 @@ sudo install -Dm755 netcfg /usr/bin/netcfg
 git clone https://github.com/fivetime/netcfg.git
 cd netcfg
 make build && sudo make install   # 装到 /usr/bin/netcfg + systemd 单元
+```
+
+### 替换 netplan（takeover）
+
+deb/rpm/apk `Conflicts/Replaces netplan.io`，安装即接管：postinstall 自动启用
+`netcfg-apply.service`（开机应用 `/etc/netplan/*.yaml`）并运行 `netcfg takeover`——把
+`netplan generate` 留下的 systemd-networkd 后端文件（`/{etc,run}/systemd/network/10-netplan-*`）
+移到 `/var/lib/netcfg/netplan-networkd-backup`，避免重启时 networkd 与 netcfg 冲突。
+
+```bash
+netcfg takeover            # 移走 netplan 的 networkd 后端文件（--dry-run 预览）
+netcfg takeover --revert   # 还原；再重装 netplan.io + netplan apply 即回到 netplan
 ```
 
 > 发行版覆盖矩阵、打包/发布流程详见 [packaging/README.md](packaging/README.md)。

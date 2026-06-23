@@ -72,6 +72,19 @@ sudo make install
 sudo make enable
 ```
 
+### Replacing netplan
+
+netcfg 的 deb/rpm/apk `Conflicts/Replaces netplan.io`，安装即接管。postinstall 自动：
+启用 `netcfg-apply.service`（开机经 netlink 应用 `/etc/netplan/*.yaml`）+ 运行
+`netcfg takeover`（把 `netplan generate` 留下的 systemd-networkd 后端文件
+`/{etc,run}/systemd/network/10-netplan-*` 移到 `/var/lib/netcfg/netplan-networkd-backup`，
+否则重启时仍被 networkd 应用、与 netcfg 冲突）。
+
+```bash
+netcfg takeover            # 移走 netplan 的 networkd 后端文件
+netcfg takeover --revert   # 还原；之后重装 netplan.io 并 netplan apply 即回到 netplan
+```
+
 > 发行版覆盖矩阵、打包/发布流程详见 [packaging/README.md](packaging/README.md)。
 
 ## systemd 服务
@@ -96,7 +109,8 @@ sudo systemctl stop netcfg.service
 ```
 
 服务文件说明：
-- `netcfg.service` - 主服务，开机时应用配置
+- `netcfg-apply.service` - 开机应用网络配置（替代 netplan 的开机路径；deb/rpm 默认启用）
+- `netcfg.service` - DHCP 续约 / NDP 代答守护进程（可选）
 - `netcfg-netns.service` - netns 专用服务（可选）
 - `netcfg-wait-online.service` - 等待网络就绪（可选）
 
@@ -131,6 +145,11 @@ netcfg set network.ethernets.eth0.dhcp4=true
 
 # Run as daemon (DHCP lease management + SIGHUP reload)
 netcfg daemon
+
+# Take over from netplan: move netplan's systemd-networkd backend files aside
+netcfg takeover            # neutralize /{etc,run}/systemd/network/10-netplan-*
+netcfg takeover --dry-run  # preview
+netcfg takeover --revert   # restore them
 ```
 
 ### Namespace Commands
