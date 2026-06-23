@@ -43,6 +43,23 @@ REPO
 sudo dnf install netcfg     # 或 zypper / yum
 ```
 
+## 替换 netplan（takeover）
+
+netcfg 的 deb/rpm/apk 会 `Conflicts/Replaces netplan.io`，安装即接管。安装时 postinstall 自动：
+1. 启用 `netcfg-apply.service`（开机经 netlink 应用 `/etc/netplan/*.yaml`）；
+2. 运行 `netcfg takeover`——把 `netplan generate` 留下的 systemd-networkd 后端文件
+   （`/{etc,run}/systemd/network/10-netplan-*`）移到 `/var/lib/netcfg/netplan-networkd-backup`，
+   否则重启时这些文件仍被 systemd-networkd 应用、与 netcfg 冲突；
+3. 若确有 netplan networkd 残留，屏蔽 `systemd-networkd-wait-online`（避免开机等待超时）。
+
+手动操作：
+```bash
+netcfg takeover            # 移走 netplan 的 networkd 后端文件
+netcfg takeover --dry-run  # 预览
+netcfg takeover --revert   # 还原（回到 netplan 接管前）
+```
+回到 netplan：`netcfg takeover --revert` → 重装 `netplan.io` → `netplan apply`。
+
 ## 发行版覆盖（尽力而为）
 
 netcfg 是 **Linux netlink 工具**，只能运行在 Linux 上。下表按支持方式归类。
