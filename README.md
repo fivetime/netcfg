@@ -22,10 +22,48 @@ A network configuration tool compatible with netplan syntax, with native support
 
 ## Installation
 
+### apt / yum repository (recommended)
+
+签名的 apt/yum 仓库，托管在 GitHub Pages：<https://fivetime.github.io/netcfg/>（amd64/arm64，纯静态包跨所有发行版）。
+
+**Debian / Ubuntu 及衍生（apt）**
+```bash
+curl -fsSL https://fivetime.github.io/netcfg/netcfg-archive-keyring.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/netcfg-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/netcfg-archive-keyring.gpg] https://fivetime.github.io/netcfg/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/netcfg.list
+sudo apt-get update && sudo apt-get install netcfg
+```
+
+**RHEL / Rocky / AlmaLinux / Fedora / openSUSE（yum/dnf/zypper）**
+```bash
+sudo rpm --import https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+sudo tee /etc/yum.repos.d/netcfg.repo >/dev/null <<'REPO'
+[netcfg]
+name=netcfg packages
+baseurl=https://fivetime.github.io/netcfg/rpm/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://fivetime.github.io/netcfg/RPM-GPG-KEY-netcfg
+REPO
+sudo dnf install netcfg
+```
+
+### Direct package download (deb / rpm / apk / archlinux)
+
+从 [Releases](https://github.com/fivetime/netcfg/releases) 下载对应架构的包后直接安装：
+```bash
+sudo apt install ./netcfg_*_amd64.deb                  # Debian/Ubuntu
+sudo dnf install ./netcfg-*.x86_64.rpm                 # RHEL/Fedora/openSUSE
+sudo apk add --allow-untrusted ./netcfg_*_x86_64.apk   # Alpine
+sudo pacman -U ./netcfg-*-x86_64.pkg.tar.zst           # Arch/Manjaro
+```
+
 ### From source
 
 ```bash
-git clone https://github.com/netcfg/netcfg.git
+git clone https://github.com/fivetime/netcfg.git
 cd netcfg
 make build
 sudo make install
@@ -34,11 +72,7 @@ sudo make install
 sudo make enable
 ```
 
-### From deb package
-
-```bash
-sudo apt install ./netcfg_0.2.0_amd64.deb
-```
+> 发行版覆盖矩阵、打包/发布流程详见 [packaging/README.md](packaging/README.md)。
 
 ## systemd 服务
 
