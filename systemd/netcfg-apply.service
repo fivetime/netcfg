@@ -1,0 +1,19 @@
+[Unit]
+Description=netcfg apply network configuration (netplan-compatible)
+Documentation=https://github.com/fivetime/netcfg
+# 开机静态网络应用：替代 netplan 的 networkd 生成路径，从 /etc/netplan(或 /etc/netcfg)
+# 直接经 netlink 应用 bond/vlan/bridge/地址/路由。netcfg.service(daemon) 只续 DHCP/NDP，
+# 不下发静态配置，故需要本 oneshot 才能在重启后自动恢复网络。
+After=systemd-udevd.service local-fs.target
+Wants=network.target
+Before=network.target network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 默认配置目录由 netcfg 自动探测（/etc/netcfg 有 YAML 则用之，否则 /etc/netplan）
+ExecStart=/usr/bin/netcfg apply
+ExecReload=/usr/bin/netcfg apply
+
+[Install]
+WantedBy=multi-user.target

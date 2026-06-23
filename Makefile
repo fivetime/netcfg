@@ -20,6 +20,7 @@ install: build
 	mkdir -p /etc/netcfg
 	mkdir -p /etc/netplan
 	# Install systemd services
+	install -Dm644 systemd/netcfg-apply.service $(SYSTEMD_DIR)/netcfg-apply.service
 	install -Dm644 systemd/netcfg.service $(SYSTEMD_DIR)/netcfg.service
 	install -Dm644 systemd/netcfg-netns.service $(SYSTEMD_DIR)/netcfg-netns.service
 	install -Dm644 systemd/netcfg-wait-online.service $(SYSTEMD_DIR)/netcfg-wait-online.service
@@ -36,10 +37,11 @@ uninstall: disable
 
 # Systemd 管理命令
 enable:
-	systemctl enable netcfg.service
-	@echo "netcfg 已启用开机自启动"
+	systemctl enable netcfg-apply.service
+	@echo "netcfg-apply 已启用（开机自动应用网络配置）"
 
 disable:
+	-systemctl disable netcfg-apply.service 2>/dev/null
 	-systemctl disable netcfg.service 2>/dev/null
 	-systemctl disable netcfg-netns.service 2>/dev/null
 	-systemctl disable netcfg-wait-online.service 2>/dev/null

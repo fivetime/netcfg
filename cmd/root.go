@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/netcfg/netcfg/version"
 	"github.com/spf13/cobra"
@@ -60,12 +61,23 @@ func Execute() {
 }
 
 func init() {
-	// 确定默认配置目录
+	// 默认配置目录：仅当 /etc/netcfg 下确有 YAML 配置时才用它，否则回退 /etc/netplan
+	// （避免空的 /etc/netcfg 目录遮蔽真正的 netplan 配置——netcfg 以 netplan 兼容为默认）。
 	defaultConfigDir := "/etc/netplan"
-	if _, err := os.Stat("/etc/netcfg"); err == nil {
+	if dirHasYAML("/etc/netcfg") {
 		defaultConfigDir = "/etc/netcfg"
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&configDir, "config-dir", "c", defaultConfigDir, "Configuration directory")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
+}
+
+// dirHasYAML 判断目录下是否存在 *.yaml / *.yml 配置文件。
+func dirHasYAML(dir string) bool {
+	for _, pat := range []string{"*.yaml", "*.yml"} {
+		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -55,6 +55,8 @@ contents:
     type: symlink
 
   # systemd 单元（/usr/lib/systemd/system 为各发行版规范单元目录）
+  - src: ./systemd/netcfg-apply.service          # 开机静态网络应用（替代 netplan 开机路径）
+    dst: /usr/lib/systemd/system/netcfg-apply.service
   - src: ./systemd/netcfg.service
     dst: /usr/lib/systemd/system/netcfg.service
   - src: ./systemd/netcfg-netns.service
