@@ -46,6 +46,10 @@ network:
       routes:
         - { to: default, via: 10.0.0.254 }
       vpp: { mode: af-packet, host-if: eth0 }
+      # NDP 代理：addresses → VPP ip6nd_proxy（逐 /128，本接口 MAC 应答 NS）。
+      # rules（按前缀/外部 MAC）仅内核响应器支持，VPP 设备上会告警忽略。
+      ndp-proxy:
+        addresses: ["2001:db8::99"]
 
     # dpdk 独占：VPP 接管该 VF（PCI），写入 startup.conf，需重启 VPP 生效
     vf0: { addresses: [203.0.113.1/24], vpp: { mode: dpdk, pci: "0000:03:02.0" } }
@@ -70,3 +74,11 @@ network:
     br0:
       interfaces: [vx100]            # 把 vxlan 加入 bridge domain
       addresses: [10.22.0.1/24]      # 带地址 → 自动建 BVI loopback 承载 L3
+      # NDP 代答（前缀 + 外部 MAC）：VPP 数据面做不了，netcfg 往该 BD 生一根托管内核
+      # tap（ncndp<hash>，见 ip -d link 的 alias），由 daemon 的纯 Go 响应器代答。
+      # 仅支持显式 neighbor 的静态规则；省略 neighbor(hairpin) / mode: auto 会告警跳过。
+      ndp-proxy:
+        router: true
+        rules:
+          - prefix: 2400:2410:ef28:2a00:1::/80
+            neighbor: 84:47:09:0b:7d:4a

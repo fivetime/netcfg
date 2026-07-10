@@ -2,6 +2,8 @@
 # 两部分，可单用或并用：
 #   addresses: 内核 proxy_ndp（逐 /128，用本机 MAC，apply 即生效，无需 daemon）
 #   rules:     内置纯 Go 响应器（按前缀代答，可指定外部 MAC；需 netcfg daemon 常驻）
+# VPP 管的设备（vpp: 块 / renderer: vpp）：addresses → VPP ip6nd_proxy（同为逐 /128、
+# 接口 MAC）；rules 走内核 AF_PACKET，VPP 设备上不支持（见 example/vpp-example.yaml）。
 network:
   version: 2
   ethernets:

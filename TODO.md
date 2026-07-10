@@ -475,3 +475,23 @@
 - [x] **ND5-1** example：ndp-proxy 块（addresses + rules）示例
 - [x] **ND5-2** README/INTRODUCTION 更新（区分内核 proxy_ndp / VPP / 内置响应器）
 - [x] **ND5-3** memory 更新
+
+### ND6 VPP 侧（曾于 9d0d3e3 移除，2026-07-10 重新加回，接统一块）
+- [x] **ND6-1** VPP 设备的 `ndp-proxy.addresses` → ip6nd_proxy_add_del（逐 /128，幂等 + state 回收）；bridge 落 BVI
+- [x] **ND6-2** `rules` 在 VPP 设备上告警忽略（内核 AF_PACKET 响应器看不到 VPP 独占流量）；daemon 响应器跳过 VPP 管的设备
+- [x] **ND6-3** tests/vpp TestNDProxy（apply/幂等/回收，断言 ip6 FIB）
+- [ ] **ND6-4** machine1（或 netcfg-vpp 容器）真机跑 tests/vpp 验证（务必 `netcfg apply -c <独立目录>`，别用全局 renderer: vpp 抓走生产 NIC）
+
+### ND7 VPP bridge 前缀+外部 MAC 代答（借内核 tap，2026-07-10）
+用户诉求：VPP 独占口也能用 ndppd 式（前缀+外部 MAC）代答。核对 VPP 源码确认数据面无解，
+决定往 VPP bridge 的 BD 生一根托管内核 tap，复用现有纯 Go 响应器。LCP/lcpng 评估后不采用。
+- [x] **ND7-1** vpp 包：`NDPTapName`/`EnsureNDPTap`/`DeleteNDPTap`（tapv2，入 BD，tag=内核名，幂等）
+- [x] **ND7-2** Applier 加 tapv2 RPC；state Delete 加 `ndp-tap`；reap order 置于 bridge 前
+- [x] **ND7-3** cmd/vpp.go：provision（external-MAC 静态 rules）+ ifalias + 进 desired 回收；hairpin/auto 告警跳过
+- [x] **ND7-4** netlink `SetAlias`（ifalias「do not delete」）
+- [x] **ND7-5** cmd/ndp.go：VPP bridge 的响应器绑到 tap 名（只 external-MAC 静态）；非 bridge VPP 设备告警
+- [x] **ND7-6** daemon 自愈：`RTM_DELLINK` 监听 → 重连 VPP 重建 tap + 重启响应器（cmd/ndptap_daemon.go）
+- [x] **ND7-7** tests/vpp TestNDPProxyTap（tap 入 BD、内核名+ifalias、回收）
+- [x] **ND7-8** example/vpp-example.yaml + README/INTRODUCTION + docs/ndp-responder-design.md
+- [x] **ND7-9** 真机验证（WSL2 Ubuntu + 真 VPP 26.06，2026-07-10）：兼容性自检过；apply 建 tap 入 BD、内核名+ifalias；端到端数据面（netns 发 NS → af-packet → BD 泛洪 → tap → 响应器 → NA(TLLA=84:47:09:0b:7d:4a) → netns 学到外部 MAC+router）；`ip link del` 后 daemon ~105ms 自愈；去 ndp-proxy 后回收且 daemon 不误重建（race-fix 生效）。修了 ndProxyFromSet 纯 rules 误报「requires addresses」。
+- [ ] **ND7-10** machine1 生产级复核（可选，WSL 已证功能正确；真机注意 `-c 独立目录` 隔离）

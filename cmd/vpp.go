@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/netcfg/netcfg/config"
+	nl "github.com/netcfg/netcfg/netlink"
 	"github.com/netcfg/netcfg/vpp"
 )
 
@@ -190,17 +191,161 @@ func setupVPP(global *config.VPPGlobal, v *vppSet) error {
 		a.ApplyNat(ctx, global.NAT)
 	}
 
-	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备 + NAT 规则（孤儿）。
+	// NDP 代理（接口就绪后；设备 ndp-proxy.addresses → ip6nd_proxy）
+	ndp := ndProxyFromSet(v)
+	for _, name := range sortedKeys(ndp) {
+		if err := a.ApplyNDProxy(ctx, name, ndp[name]); err != nil {
+			slog.Error("vpp apply nd-proxy failed", "device", name, "error", err)
+		}
+	}
+
+	// NDP 代答 tap（bridge 就绪后）：VPP bridge 上的 external-MAC 静态 rules → 往该 BD
+	// 生一根内核 tap，由 daemon 的纯 Go 响应器承载（VPP 数据面无法前缀+外部 MAC 代答）。
+	provisionNDPTaps(ctx, a, v)
+
+	// 增量回收：删除上次创建、本次配置中已不存在的 VPP 设备 + NAT 规则 + NDP 代理（孤儿）。
 	desired := buildDesiredVPPState(v)
 	if global != nil && global.NAT != nil {
 		desired.Nat = natItemsFromConfig(global.NAT)
 	}
+	desired.NDProxy = ndProxyItems(ndp)
+	reapVPPNDProxyOrphans(ctx, a, prev, desired)
 	reapVPPOrphans(ctx, a, prev, desired)
 	reapNatOrphans(ctx, a, prev, desired)
 	if err := desired.Save(); err != nil {
 		slog.Warn("failed to save VPP state", "error", err)
 	}
 	return nil
+}
+
+// vppNDPTapRules 返回该 ndp-proxy 块里可由 VPP-tap 承载的 external-MAC 静态规则，
+// 以及被跳过的 hairpin/auto 规则数。VPP 独占设备上，hairpin（无 neighbor，把流量
+// 拽进内核）和 auto（判据是内核路由表，反映不了 VPP FIB）语义都会坏，故只留显式
+// 外部 MAC 的静态规则。
+func vppNDPTapRules(n *config.NDProxy) (ok []*config.NDProxyRule, skipped int) {
+	if n == nil {
+		return nil, 0
+	}
+	for _, r := range n.Rules {
+		if r.Neighbor == "" || strings.EqualFold(r.Mode, "auto") {
+			skipped++
+			continue
+		}
+		ok = append(ok, r)
+	}
+	return ok, skipped
+}
+
+// ndpTapBdID 取 bridge 的 bridge-domain id（与 ApplyBridge 一致）。
+func ndpTapBdID(name string, b *config.Bridge) uint32 {
+	if b.VPP != nil && b.VPP.BdID > 0 {
+		return uint32(b.VPP.BdID)
+	}
+	return vpp.AutoBdID(name)
+}
+
+// provisionNDPTaps 为每个带 external-MAC 静态 rules 的 VPP bridge 生一根 NDP 代答 tap，
+// 并在内核侧打 ifalias（「managed, do not delete」）。响应器本体由 daemon 起。
+func provisionNDPTaps(ctx context.Context, a *vpp.Applier, v *vppSet) {
+	for _, name := range sortedKeys(v.bridges) {
+		b := v.bridges[name]
+		rules, skipped := vppNDPTapRules(b.NDProxy)
+		if skipped > 0 {
+			slog.Warn("ndp-proxy: hairpin/auto rules unsupported on VPP devices; skipped (use explicit neighbor MAC; for hairpin use VPP FIB + native ip6nd_proxy)", "bridge", name, "skipped", skipped)
+		}
+		if len(rules) == 0 {
+			continue
+		}
+		hostIf, err := a.EnsureNDPTap(ctx, name, ndpTapBdID(name, b))
+		if err != nil {
+			slog.Error("vpp ndp-proxy tap failed", "bridge", name, "error", err)
+			continue
+		}
+		setNDPTapAlias(hostIf, name)
+		slog.Info("vpp ndp-proxy tap ready", "bridge", name, "tap", hostIf, "rules", len(rules))
+	}
+}
+
+// setNDPTapAlias 给 tap 打上人类可读的 ifalias 提示，降低被误删概率。
+func setNDPTapAlias(hostIf, bridge string) {
+	mgr, err := nl.New()
+	if err != nil {
+		return
+	}
+	defer mgr.Close()
+	if err := mgr.SetAlias(hostIf, "netcfg NDP proxy for "+bridge+" — managed, do not delete"); err != nil {
+		slog.Warn("ndp-proxy set tap alias failed", "tap", hostIf, "error", err)
+	}
+}
+
+// ndProxyFromSet 收集各 VPP 设备 ndp-proxy 块的 addresses（→ ip6nd_proxy，设备名 → IPv6
+// 列表）。只管 addresses 子键；rules（前缀/外部 MAC）由 bridge 上的托管 tap 承载
+// （provisionNDPTaps），此处不涉及。bridge 的 L3 在 BVI 上，条目落到 <name>-bvi。
+func ndProxyFromSet(v *vppSet) map[string][]string {
+	out := map[string][]string{}
+	// 非 bridge 设备：只有 addresses 可用；rules 无对应机制（tap 只覆盖 bridge），告警。
+	addDev := func(name string, n *config.NDProxy) {
+		if n == nil {
+			return
+		}
+		if len(n.Rules) > 0 {
+			slog.Warn("ndp-proxy rules not supported on VPP non-bridge devices (put the segment in a VPP bridge); ignored", "device", name)
+		}
+		if len(n.Addresses) > 0 {
+			out[name] = n.Addresses
+		}
+	}
+	for n, e := range v.ethernets {
+		addDev(n, e.NDProxy)
+	}
+	for n, b := range v.bonds {
+		addDev(n, b.NDProxy)
+	}
+	for n, x := range v.vlans {
+		addDev(n, x.NDProxy)
+	}
+	// bridge：addresses → BVI ip6nd_proxy（需 bridge 自身有地址承载 BVI）；纯 rules 不在此告警。
+	for n, b := range v.bridges {
+		if b.NDProxy == nil || len(b.NDProxy.Addresses) == 0 {
+			continue
+		}
+		if len(b.Addresses) == 0 {
+			slog.Warn("ndp-proxy addresses on a VPP bridge need the bridge to have an address (proxy entries live on the BVI); ignored", "device", n)
+			continue
+		}
+		out[n+"-bvi"] = b.NDProxy.Addresses
+	}
+	return out
+}
+
+// ndProxyItems 把 nd-proxy 映射展开为可回收的 NDProxyItem 列表。
+func ndProxyItems(ndp map[string][]string) []vpp.NDProxyItem {
+	var items []vpp.NDProxyItem
+	for _, iface := range sortedKeys(ndp) {
+		for _, ip := range ndp[iface] {
+			items = append(items, vpp.NDProxyItem{Iface: iface, IP: ip})
+		}
+	}
+	return items
+}
+
+// reapVPPNDProxyOrphans 删除 prev 中有、desired 中无的 NDP 代理条目。
+// 须在设备回收前跑：接口还在时逐条删，接口本身被回收的条目在 DeleteNDProxy 里跳过。
+func reapVPPNDProxyOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.State) {
+	want := map[string]bool{}
+	for _, it := range desired.NDProxy {
+		want[it.Key()] = true
+	}
+	for _, it := range prev.NDProxy {
+		if want[it.Key()] {
+			continue
+		}
+		if err := a.DeleteNDProxy(ctx, it); err != nil {
+			slog.Warn("vpp reap nd-proxy failed", "iface", it.Iface, "ip", it.IP, "error", err)
+		} else {
+			slog.Info("vpp removed orphan nd-proxy", "iface", it.Iface, "ip", it.IP)
+		}
+	}
 }
 
 // natItemsFromConfig 把 NAT 配置展开为可回收的 NatItem 列表。
@@ -300,14 +445,19 @@ func buildDesiredVPPState(v *vppSet) *vpp.State {
 		if len(b.Addresses) > 0 {
 			s.Devices[name+"-bvi"] = vpp.DevInfo{Type: "loopback"} // 带地址 bridge 的 BVI
 		}
+		if rules, _ := vppNDPTapRules(b.NDProxy); len(rules) > 0 {
+			h := vpp.NDPTapName(name)
+			s.Devices[h] = vpp.DevInfo{Type: "ndp-tap", HostIf: h} // NDP 代答 tap
+		}
 	}
 	return s
 }
 
 // reapVPPOrphans 删除 prev 中有、desired 中无的 VPP 设备，按反依赖顺序。
 func reapVPPOrphans(ctx context.Context, a *vpp.Applier, prev, desired *vpp.State) {
-	// 先删成员/接口，最后删 bridge domain（BD 仍含成员时无法删除）。
-	order := []string{"vxlan", "vlan", "bond", "loopback", "af-packet", "dpdk", "avf", "bridge"}
+	// 先删成员/接口，最后删 bridge domain（BD 仍含成员时无法删除）；ndp-tap 是 BD 成员，
+	// 须在其 bridge 之前删。
+	order := []string{"vxlan", "vlan", "bond", "loopback", "af-packet", "dpdk", "avf", "ndp-tap", "bridge"}
 	for _, typ := range order {
 		for name, info := range prev.Devices {
 			if _, ok := desired.Devices[name]; ok || info.Type != typ {

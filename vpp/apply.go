@@ -26,8 +26,10 @@ import (
 	interfaces "go.fd.io/govpp/binapi/interface"
 	"go.fd.io/govpp/binapi/interface_types"
 	"go.fd.io/govpp/binapi/ip"
+	"go.fd.io/govpp/binapi/ip6_nd"
 	"go.fd.io/govpp/binapi/ip_types"
 	"go.fd.io/govpp/binapi/l2"
+	"go.fd.io/govpp/binapi/tapv2"
 	"go.fd.io/govpp/binapi/vxlan"
 )
 
@@ -40,6 +42,8 @@ type Applier struct {
 	bondc bond.RPCService
 	vxc   vxlan.RPCService
 	devc  dev.RPCService      // VPP 设备框架（26.02 用于 iavf 等原生驱动）
+	ndc   ip6_nd.RPCService   // NDP 代理（ip6nd_proxy）
+	tapc  tapv2.RPCService    // NDP 代答 tap（前缀+外部 MAC 借内核响应器）
 	conn  govppapi.Connection // 供 NAT 等子模块按需创建 service client
 
 	// 设备名 → sw_if_index 缓存（本次 apply 内，供 bond/vlan/bridge 引用其它接口）
@@ -58,6 +62,8 @@ func NewApplier(c *Client) *Applier {
 		bondc: bond.NewServiceClient(conn),
 		vxc:   vxlan.NewServiceClient(conn),
 		devc:  dev.NewServiceClient(conn),
+		ndc:   ip6_nd.NewServiceClient(conn),
+		tapc:  tapv2.NewServiceClient(conn),
 		idx:   map[string]interface_types.InterfaceIndex{},
 	}
 }
@@ -650,6 +656,8 @@ func (a *Applier) Delete(ctx context.Context, name string, info DevInfo) error {
 	case "bridge":
 		_, err := a.l2c.BridgeDomainAddDel(ctx, &l2.BridgeDomainAddDel{BdID: info.BdID, IsAdd: false})
 		return err
+	case "ndp-tap":
+		return a.DeleteNDPTap(ctx, name)
 	case "dpdk", "avf":
 		// 独占接口由 startup.conf/硬件管理，运行态不删（移除需改 startup.conf 重启 VPP）
 		return nil

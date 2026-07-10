@@ -13,8 +13,8 @@ CGO/libpcap，跨发行版**，契合 netcfg 自包含理念（同内置纯 Go D
 ## 与已有三种 NDP 能力的关系（划清，避免混淆）
 | 能力 | 配置 | 机制 | 粒度 | 应答 MAC | 是否需 daemon |
 |------|------|------|------|----------|---------------|
-| 内核 proxy_ndp（已实现）| `nd-proxy: [addrs]` | sysctl proxy_ndp + NTF_PROXY 邻居 | 逐 /128 | **本机 MAC**（本机进转发路径）| 否（一次性）|
-| VPP nd-proxy（已实现）| `vpp.nd-proxy: [addrs]` | ip6nd_proxy_add_del | 逐 /128 | VPP 接口 MAC | 否 |
+| 内核 proxy_ndp（已实现）| `ndp-proxy.addresses` | sysctl proxy_ndp + NTF_PROXY 邻居 | 逐 /128 | **本机 MAC**（本机进转发路径）| 否（一次性）|
+| VPP nd-proxy（已实现）| `ndp-proxy.addresses`（VPP 管的设备）| ip6nd_proxy_add_del | 逐 /128 | VPP 接口 MAC | 否 |
 | **内置响应器（本设计）** | `ndp-proxy.rules` | 用户态监听 NS / 回 NA | **按前缀** | **可指定外部 MAC** | **是** |
 
 > 内核/VPP 都做不到「按前缀代答」和「用外部 MAC 应答」——前者表项是逐地址，后者内核只会
@@ -68,6 +68,31 @@ ethernets:
 ## 校验（LoadConfig）
 - `rules[].prefix` 合法 IPv6 CIDR；`neighbor` 合法单播 MAC（若给）。
 - `addresses[]` 合法 IPv6。
+
+## VPP 场景：借内核 tap 复用响应器（前缀 + 外部 MAC）
+VPP 数据面无法做「按前缀 + 外部 MAC」的 ND 代答（`ip6nd_proxy` 只逐 /128、用接口自身
+MAC；核对过 VPP master 源码 `ip6_nd_proxy.c` / `ip6_nd_inline.h`，两套代理都写死接口
+MAC，无前缀/外部 MAC 入口）。故对**归 VPP 管的 bridge**上带外部 MAC 静态 `rules` 的
+`ndp-proxy` 块，netcfg 往该 bridge 的 bridge-domain **生一根托管内核 tap**，把上面这套
+纯 Go 响应器原样搬到 tap 上跑：
+
+- **数据路径**：线上的 solicited-node 组播 NS 经 BD 泛洪到达 tap → 内核响应器代答 NA
+  （TLLA=外部 MAC）→ 经 BD 转回线路。响应器用 AF_PACKET **cooked** 模式发帧，二层源 MAC
+  由内核填成 tap 自己的 MAC，外部 MAC 只在 NDP 载荷的 TLLA 里 → **BD 不会把外部 MAC 学到
+  tap 口**（外部 MAC 仍从真实下游在物理口的流量学表），响应器零改动即正确。
+- **命名 / 防误删**：tap 内核名 `ncndp<fnv32(bridge)>`（≤ IFNAMSIZ 15，apply 与 daemon 各自
+  确定性算出同名，无需共享状态）；`ifalias` 写「netcfg NDP proxy for <bridge> — managed,
+  do not delete」（`ip -d link` 可见）。
+- **生命周期**：apply 建 tap + 入 BD（幂等，tag=内核名）；进 vpp-state 随孤儿回收（配置里
+  删掉 `ndp-proxy` → tap 从 VPP+内核消失）；daemon 监听 `RTM_DELLINK`，tap 被 `ip link del`
+  强删则重连 VPP 清残留 + 重建 + 重挂 BD + 重启响应器。
+- **只支持外部 MAC 静态规则**：省略 `neighbor`（hairpin，用本口 MAC）会把数据流拽进内核慢
+  路径——VPP 场景应改用 VPP FIB 路由 + 原生 `ip6nd_proxy`；`mode: auto` 的判据是内核路由表，
+  反映不了 VPP FIB。两者在 VPP 设备上一律告警跳过。
+- **范围**：仅 VPP **bridge**（BD 语境天然吻合外部 MAC 代答＝VPP 充当该段 L2 交换）。VPP 管的
+  ethernet/vlan/bond 上的 `rules` 告警忽略（要用就把该段放进 VPP bridge）。**不**替纯 L3 独占口
+  自动建 BD+BVI（过于侵入）。LCP/lcpng 方案经评估不采用（全局状态 + 强制 netlink 同步守护 +
+  插件变体歧义，且不消掉 BD 要求）。
 
 ## 不在本期范围
 - ndppd 的 `auto`（按路由表派生）/`iface`（转发 NS 到另一口探测）动态模式——本期只做

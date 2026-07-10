@@ -33,6 +33,16 @@ func (m *NetlinkManager) SetAllmulti(iface string, on bool) error {
 	return m.handle.LinkSetAllmulticastOff(link)
 }
 
+// SetAlias 设接口的 ifalias（`ip -d link show` 可见），用于给 netcfg 托管的
+// NDP tap 打上「managed, do not delete」提示。接口不存在时报错由调用方决定处理。
+func (m *NetlinkManager) SetAlias(iface, alias string) error {
+	link, err := m.handle.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("alias %s: %w", iface, err)
+	}
+	return m.handle.LinkSetAlias(link, alias)
+}
+
 // proxyNDPNeigh 构造一条 IPv6 NDP 代理邻居条目。
 func (m *NetlinkManager) proxyNDPNeigh(iface, ipStr string) (*netlink.Neigh, error) {
 	link, err := m.handle.LinkByName(iface)
