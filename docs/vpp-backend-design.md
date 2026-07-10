@@ -175,6 +175,8 @@ VPP 设备**复用标准 netplan 键**，netcfg 翻译为 VPP API 调用：
 | `bonds.<n>: {interfaces, parameters.mode}` | bond 接口 + 成员 | `bond_create2` + `bond_add_member` |
 | `tunnels.<n>: {mode: vxlan, id, local, remote}` | VXLAN 隧道 | `vxlan_add_del_tunnel_v3` |
 | `routes: table:` / VRF | IP table | `ip_table_add_del` + `sw_interface_set_table` |
+| `<dev>.ndp-proxy.addresses` | NDP 代理（逐 /128，本接口 MAC） | `ip6nd_proxy_add_del`（ethernet/bond/vlan；bridge 落 BVI） |
+| `bridges.<n>.ndp-proxy.rules`（前缀+外部 MAC） | 该 BD 内托管内核 tap + 纯 Go 响应器 | `tap_create_v3` + `sw_interface_set_l2_bridge`（VPP 数据面做不了前缀/外部 MAC，daemon 响应器代答；强删自愈、随配置回收，见 `docs/ndp-responder-design.md`） |
 
 **bond `parameters.mode` 映射**：`802.3ad`→lacp、`active-backup`→active-backup、`balance-xor`→xor、`balance-rr`→round-robin、`broadcast`→broadcast。
 
@@ -222,7 +224,7 @@ VPP 运行态配置**重启即失**（无 running-config save）。netcfg 沿用
 
 - **GoVPP 模块**：`go.fd.io/govpp`（go.mod 要求 **go 1.25**）。netcfg 升 toolchain 到 1.25；开发期用 `replace go.fd.io/govpp => <本地 govpp 源>` 锁定版本、离线。
 - **目标 VPP**：`fivetime/vpp` 的 **26.02**（Release `pkg-v26.02` 全套 deb/rpm；GHCR 镜像 `ghcr.io/fivetime/vpp:26.02`/`:latest`，多架构公开）。
-- **绑定（binapi）**：govpp 本地预生成绑定对应 25.10，**需对 26.02 重新生成**（从 26.02 容器 `/usr/share/vpp/api` 的 `.api.json` 用 `binapi-generator`）。netcfg 只 vendor 用到的子包（interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/ethernet_types）。
+- **绑定（binapi）**：govpp 本地预生成绑定对应 25.10，**需对 26.02 重新生成**（从 26.02 容器 `/usr/share/vpp/api` 的 `.api.json` 用 `binapi-generator`）。netcfg 用到的子包（interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/ethernet_types/ip6_nd，以及 NAT 的 nat44_ed/nat64/nat66、avf 的 dev）。
 - **兼容性自检**：连接后对所有用到的包 `CheckCompatiblity(AllMessages()...)`，CRC 不匹配立即报「绑定针对 VPP X、实际运行 Y」并退出，避免运行中途 `unknown message`。
 - **连接**：`adapter/socketclient` 连 `api-socket`，RPC service-client 风格（`xxx.NewServiceClient(conn)` + context）。
 - **权限**：socket 属组 `vpp`；netcfg 需 root 或加入 `vpp` 组。
