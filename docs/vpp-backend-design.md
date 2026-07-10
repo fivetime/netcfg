@@ -222,9 +222,9 @@ VPP 运行态配置**重启即失**（无 running-config save）。netcfg 沿用
 
 ## 8. 版本、绑定与连接
 
-- **GoVPP 模块**：`go.fd.io/govpp`（go.mod 要求 **go 1.25**）。netcfg 升 toolchain 到 1.25；开发期用 `replace go.fd.io/govpp => <本地 govpp 源>` 锁定版本、离线。
-- **目标 VPP**：`fivetime/vpp` 的 **26.02**（Release `pkg-v26.02` 全套 deb/rpm；GHCR 镜像 `ghcr.io/fivetime/vpp:26.02`/`:latest`，多架构公开）。
-- **绑定（binapi）**：govpp 本地预生成绑定对应 25.10，**需对 26.02 重新生成**（从 26.02 容器 `/usr/share/vpp/api` 的 `.api.json` 用 `binapi-generator`）。netcfg 用到的子包（interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/ethernet_types/ip6_nd，以及 NAT 的 nat44_ed/nat64/nat66、avf 的 dev）。
+- **GoVPP 模块**：`go.fd.io/govpp`，go.mod **直接 require 上游 `v0.14.0-alpha.0.20260608`**（`go 1.25`）。不再本地预生成 / `replace`——升级即 bump 模块版本。
+- **绑定（binapi）**：由该 govpp 版本上游预生成，对应 **VPP master ~26.06 期**（2026-06 快照）。升级 VPP 时同步 bump govpp 模块，而非手工 `binapi-generator` regen。netcfg 用到的子包（interface/interface_types/ip/ip_types/fib_types/l2/vxlan/tapv2/af_packet/bond/ethernet_types/ip6_nd，以及 NAT 的 nat44_ed/nat64/nat66、avf 的 dev）。
+- **目标 / 验证 VPP**：**已在 VPP 26.06（fd.io release）端到端验证**（af-packet/bridge/bond/vlan/vxlan/NAT/NDP tap）。运行的 VPP 须与 binapi 同期（~26.06）——否则兼容性自检直接拒绝（2026-06 的绑定对更旧的 26.02 会有 CRC 不匹配）；`fivetime/vpp` 镜像需相应构建到 26.06+。
 - **兼容性自检**：连接后对所有用到的包 `CheckCompatiblity(AllMessages()...)`，CRC 不匹配立即报「绑定针对 VPP X、实际运行 Y」并退出，避免运行中途 `unknown message`。
 - **连接**：`adapter/socketclient` 连 `api-socket`，RPC service-client 风格（`xxx.NewServiceClient(conn)` + context）。
 - **权限**：socket 属组 `vpp`；netcfg 需 root 或加入 `vpp` 组。
@@ -240,6 +240,8 @@ VPP 运行态配置**重启即失**（无 running-config save）。netcfg 沿用
 | **V1a** | af-packet 接口 + loopback + 地址 + 路由（含默认网关）+ up/mtu/mac/activation-mode | privileged 容器内端到端：apply → `vppctl show int/int addr/ip fib` 断言 |
 | **V1b** | VLAN sub-if + bridge domain(+BVI) + bond + vxlan | 同上 + bridge/bond/vxlan 断言 |
 | **V1c** | dpdk/avf 独占 + `startup.conf` 生成（NIC 绑定/hugepages/CPU）+ SR-IOV VF 链路 | 真机或带 VF 的环境 |
+| **N（NAT）** | nat44-ed/nat64/nat66：SNAT/masquerade、地址池、静态映射（端口转发/1:1/twice-nat）；增量回收孤儿规则 | `tests/vpp`（TestNat44/TestNatReap）：`vppctl show nat44 interfaces/addresses/static mappings` 断言 |
+| **ND（NDP 代理）** | `ndp-proxy.addresses`→`ip6nd_proxy`（逐 /128，幂等+回收）；VPP **bridge** 上前缀+外部 MAC `rules`→该 BD 生托管内核 tap + 纯 Go 响应器（确定性命名+ifalias、`RTM_DELLINK` 强删自愈、随配置回收）。VPP 数据面做不了前缀/外部 MAC 代答，故借内核；hairpin/auto 不支持。见 `docs/ndp-responder-design.md` | `tests/vpp`（TestNDProxy/TestNDPProxyTap）；WSL2 + VPP 26.06 端到端（NS→af-packet→BD→tap→响应器→NA(外部MAC)→线路学到；强删自愈 ~105ms；回收不误重建） |
 | **测试** | `tests/vpp/`：仿 integration 套件，但 apply 后用 GoVPP dump 或 `vppctl` 断言 VPP 状态 | CI 用 GHCR VPP 镜像 |
 
 ---
